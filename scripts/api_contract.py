@@ -6,7 +6,8 @@
 слепок до рефакторинга и после должен совпадать.
 
 Запуск (БД из docker-compose должна быть поднята, данные в ней будут удалены):
-    python scripts/api_contract.py docs/contract.json
+    python scripts/api_contract.py docs/contract.json   # сохранить слепок
+    python scripts/api_contract.py --check              # сравнить с docs/contract_mvp.json
 """
 import json
 import sys
@@ -90,8 +91,21 @@ with engine.connect() as conn:
         "order_1_status": conn.execute(text("SELECT status FROM orders WHERE id = 1")).scalar(),
     }
 
-result = json.dumps({"responses": log, "db_state": state}, ensure_ascii=False, indent=2)
-if len(sys.argv) > 1:
+snapshot = {"responses": log, "db_state": state}
+result = json.dumps(snapshot, ensure_ascii=False, indent=2)
+if sys.argv[1:] == ["--check"]:
+    reference_path = Path(__file__).resolve().parent.parent / "docs" / "contract_mvp.json"
+    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+    diff = [(a, b) for a, b in zip(reference["responses"], log) if a != b]
+    if reference["db_state"] != state:
+        diff.append((reference["db_state"], state))
+    if len(reference["responses"]) != len(log):
+        diff.append(("количество запросов", len(reference["responses"]), len(log)))
+    for item in diff:
+        print("РАСХОЖДЕНИЕ:", item)
+    print(f"Проверено запросов: {len(log)}. " + ("Ответы идентичны MVP." if not diff else "Есть расхождения!"))
+    sys.exit(1 if diff else 0)
+elif len(sys.argv) > 1:
     Path(sys.argv[1]).write_text(result + "\n", encoding="utf-8")
 else:
     print(result)
