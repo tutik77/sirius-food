@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.database import get_db
 from app.memory_storage import InMemoryStorage
+from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
+from app.modules.auth.service import AuthService
 from app.modules.delivery.repository import (
     DeliveryRepository,
     InMemoryDeliveryRepository,
@@ -34,6 +36,16 @@ def get_session():
         yield None
     else:
         yield from get_db()
+
+
+def get_auth_repository(db: Session | None = Depends(get_session)) -> AuthRepository:
+    if settings.STORAGE_BACKEND == "memory":
+        return InMemoryAuthRepository(memory_storage)
+    return SqlAlchemyAuthRepository(db)
+
+
+def get_auth_service(repository: AuthRepository = Depends(get_auth_repository)) -> AuthService:
+    return AuthService(repository)
 
 
 def get_user_repository(db: Session | None = Depends(get_session)) -> UserRepository:
