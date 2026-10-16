@@ -2,15 +2,17 @@
 Инфраструктурный слой модуля заказов (круг Interface Adapters).
 
 OrderRepository — абстрактный интерфейс, от которого зависит сервис.
-SqlAlchemyOrderRepository — его реализация поверх PostgreSQL.
+Реализации: SqlAlchemyOrderRepository (PostgreSQL) и InMemoryOrderRepository.
 """
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.entities import MenuItem, Order, User
 from app.mappers import to_menu_item, to_order, to_user
+from app.memory_storage import InMemoryStorage, copy
 
 
 class OrderRepository(ABC):
@@ -60,3 +62,22 @@ class SqlAlchemyOrderRepository(OrderRepository):
         self.db.commit()
         self.db.refresh(order_row)
         return to_order(order_row)
+
+
+class InMemoryOrderRepository(OrderRepository):
+    """Реализация репозитория заказов в памяти процесса."""
+
+    def __init__(self, storage: InMemoryStorage):
+        self.storage = storage
+
+    def get_user_by_id(self, user_id: int) -> User | None:
+        return copy(self.storage.users.get(user_id))
+
+    def get_menu_item_by_id(self, item_id: int) -> MenuItem | None:
+        return copy(self.storage.menu_items.get(item_id))
+
+    def save_order(self, order: Order, payer: User) -> Order:
+        saved = replace(order, id=self.storage.next_id("orders"))
+        self.storage.users[payer.id] = copy(payer)
+        self.storage.orders[saved.id] = saved
+        return copy(saved)

@@ -1,13 +1,18 @@
 """
 Инфраструктурный слой модуля меню (круг Interface Adapters).
+
+MenuRepository — абстрактный интерфейс, от которого зависит сервис.
+Реализации: SqlAlchemyMenuRepository (PostgreSQL) и InMemoryMenuRepository.
 """
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.entities import MenuItem
 from app.mappers import to_menu_item
+from app.memory_storage import InMemoryStorage, copy
 
 
 class MenuRepository(ABC):
@@ -59,3 +64,26 @@ class SqlAlchemyMenuRepository(MenuRepository):
         self.db.commit()
         self.db.refresh(row)
         return to_menu_item(row)
+
+
+class InMemoryMenuRepository(MenuRepository):
+    """Реализация репозитория меню в памяти процесса."""
+
+    def __init__(self, storage: InMemoryStorage):
+        self.storage = storage
+
+    def get_by_id(self, item_id: int) -> MenuItem | None:
+        return copy(self.storage.menu_items.get(item_id))
+
+    def get_by_name(self, name: str) -> MenuItem | None:
+        found = next((i for i in self.storage.menu_items.values() if i.name == name), None)
+        return copy(found)
+
+    def add(self, item: MenuItem) -> MenuItem:
+        saved = replace(item, id=self.storage.next_id("menu_items"))
+        self.storage.menu_items[saved.id] = saved
+        return copy(saved)
+
+    def update(self, item: MenuItem) -> MenuItem:
+        self.storage.menu_items[item.id] = copy(item)
+        return copy(item)
