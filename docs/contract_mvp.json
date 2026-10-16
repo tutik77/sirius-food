@@ -1,0 +1,274 @@
+{
+  "responses": [
+    {
+      "request": "POST /users/register",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "user_id": 1,
+        "email": "anna@sirius.ru"
+      }
+    },
+    {
+      "request": "POST /users/register",
+      "status": 400,
+      "body": {
+        "detail": "Пользователь с таким email уже зарегистрирован"
+      }
+    },
+    {
+      "request": "POST /users/register",
+      "status": 400,
+      "body": {
+        "detail": "Некорректный формат номера телефона"
+      }
+    },
+    {
+      "request": "POST /users/register",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "user_id": 2,
+        "email": "courier@sirius.ru"
+      }
+    },
+    {
+      "request": "POST /users/register",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "user_id": 3,
+        "email": "blocked@sirius.ru"
+      }
+    },
+    {
+      "request": "POST /users/1/topup",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "new_balance": 1000.0
+      }
+    },
+    {
+      "request": "POST /users/1/topup",
+      "status": 400,
+      "body": {
+        "detail": "Сумма пополнения должна быть положительной"
+      }
+    },
+    {
+      "request": "POST /users/1/topup",
+      "status": 400,
+      "body": {
+        "detail": "Максимальная сумма пополнения — 50000 рублей"
+      }
+    },
+    {
+      "request": "POST /users/999/topup",
+      "status": 404,
+      "body": {
+        "detail": "Пользователь не найден"
+      }
+    },
+    {
+      "request": "POST /users/3/topup",
+      "status": 403,
+      "body": {
+        "detail": "Пользователь заблокирован. Пополнение невозможно"
+      }
+    },
+    {
+      "request": "POST /menu/items",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "item_id": 1
+      }
+    },
+    {
+      "request": "POST /menu/items",
+      "status": 400,
+      "body": {
+        "detail": "Цена должна быть положительной"
+      }
+    },
+    {
+      "request": "POST /menu/items",
+      "status": 400,
+      "body": {
+        "detail": "Название блюда слишком короткое"
+      }
+    },
+    {
+      "request": "POST /menu/items",
+      "status": 400,
+      "body": {
+        "detail": "Блюдо с таким названием уже существует"
+      }
+    },
+    {
+      "request": "POST /menu/items",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "item_id": 2
+      }
+    },
+    {
+      "request": "PATCH /menu/items/2",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "item_id": 2
+      }
+    },
+    {
+      "request": "PATCH /menu/items/1",
+      "status": 400,
+      "body": {
+        "detail": "Цена должна быть положительной"
+      }
+    },
+    {
+      "request": "PATCH /menu/items/999",
+      "status": 404,
+      "body": {
+        "detail": "Блюдо не найдено"
+      }
+    },
+    {
+      "request": "PATCH /menu/items/1",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "item_id": 1
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "order_id": 1
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 400,
+      "body": {
+        "detail": "Количество должно быть больше нуля"
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 404,
+      "body": {
+        "detail": "Пользователь не найден"
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 404,
+      "body": {
+        "detail": "Блюдо не найдено"
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 400,
+      "body": {
+        "detail": "Блюдо недоступно"
+      }
+    },
+    {
+      "request": "POST /orders/create",
+      "status": 400,
+      "body": {
+        "detail": "Недостаточно средств на балансе студента"
+      }
+    },
+    {
+      "request": "POST /users/1/topup",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "new_balance": 461.0
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 400,
+      "body": {
+        "detail": "Курьера можно назначить только на оплаченный заказ"
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 404,
+      "body": {
+        "detail": "Заказ не найден"
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 404,
+      "body": {
+        "detail": "Курьер не найден"
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 403,
+      "body": {
+        "detail": "Курьер заблокирован и не может быть назначен"
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 200,
+      "body": {
+        "status": "success",
+        "delivery_id": 1
+      }
+    },
+    {
+      "request": "POST /delivery/assign",
+      "status": 400,
+      "body": {
+        "detail": "У курьера уже есть активная доставка"
+      }
+    },
+    {
+      "request": "PATCH /delivery/1/complete",
+      "status": 200,
+      "body": {
+        "status": "success"
+      }
+    },
+    {
+      "request": "PATCH /delivery/1/complete",
+      "status": 400,
+      "body": {
+        "detail": "Доставка уже завершена"
+      }
+    },
+    {
+      "request": "PATCH /delivery/999/complete",
+      "status": 404,
+      "body": {
+        "detail": "Доставка не найдена"
+      }
+    },
+    {
+      "request": "PATCH /delivery/2/complete",
+      "status": 400,
+      "body": {
+        "detail": "Отменённую доставку нельзя завершить"
+      }
+    }
+  ],
+  "db_state": {
+    "user_1_balance": 461.0,
+    "order_1_status": "delivered"
+  }
+}
