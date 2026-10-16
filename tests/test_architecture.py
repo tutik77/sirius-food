@@ -25,7 +25,7 @@ SERVICES = sorted(APP.glob("modules/*/service.py"))
 
 
 def test_all_modules_have_three_layers():
-    for module in ("users", "menu", "orders", "delivery"):
+    for module in ("auth", "users", "menu", "orders", "delivery"):
         for layer in ("router.py", "service.py", "repository.py"):
             assert (APP / "modules" / module / layer).exists(), f"{module}/{layer}"
 
