@@ -7,7 +7,15 @@
 """
 import os
 
-os.environ.setdefault("STORAGE_BACKEND", "memory")
+# Переменные окружения важнее .env, поэтому локальный .env на тесты не влияет.
+os.environ.update(
+    STORAGE_BACKEND="memory",
+    SECRET_KEY="test-secret-key-for-pytest-only-0123456789",
+    DATABASE_URL="postgresql://sirius:sirius@localhost:5432/sirius_food",
+    DEBUG="False",
+    ALLOWED_ORIGINS='["https://sirius-food.ru"]',
+    BCRYPT_ROUNDS="4",
+)
 
 from typing import NamedTuple
 

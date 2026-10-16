@@ -9,7 +9,7 @@ service.py и router.py не меняются.
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.config import STORAGE_BACKEND
+from app.core.config import settings
 from app.database import get_db
 from app.memory_storage import InMemoryStorage
 from app.modules.delivery.repository import (
@@ -30,14 +30,14 @@ memory_storage = InMemoryStorage()
 
 def get_session():
     """Сессия БД для SQLAlchemy-репозиториев; в режиме memory сессия не открывается."""
-    if STORAGE_BACKEND == "memory":
+    if settings.STORAGE_BACKEND == "memory":
         yield None
     else:
         yield from get_db()
 
 
 def get_user_repository(db: Session | None = Depends(get_session)) -> UserRepository:
-    if STORAGE_BACKEND == "memory":
+    if settings.STORAGE_BACKEND == "memory":
         return InMemoryUserRepository(memory_storage)
     return SqlAlchemyUserRepository(db)
 
@@ -47,7 +47,7 @@ def get_user_service(repository: UserRepository = Depends(get_user_repository)) 
 
 
 def get_menu_repository(db: Session | None = Depends(get_session)) -> MenuRepository:
-    if STORAGE_BACKEND == "memory":
+    if settings.STORAGE_BACKEND == "memory":
         return InMemoryMenuRepository(memory_storage)
     return SqlAlchemyMenuRepository(db)
 
@@ -57,7 +57,7 @@ def get_menu_service(repository: MenuRepository = Depends(get_menu_repository)) 
 
 
 def get_order_repository(db: Session | None = Depends(get_session)) -> OrderRepository:
-    if STORAGE_BACKEND == "memory":
+    if settings.STORAGE_BACKEND == "memory":
         return InMemoryOrderRepository(memory_storage)
     return SqlAlchemyOrderRepository(db)
 
@@ -67,7 +67,7 @@ def get_order_service(repository: OrderRepository = Depends(get_order_repository
 
 
 def get_delivery_repository(db: Session | None = Depends(get_session)) -> DeliveryRepository:
-    if STORAGE_BACKEND == "memory":
+    if settings.STORAGE_BACKEND == "memory":
         return InMemoryDeliveryRepository(memory_storage)
     return SqlAlchemyDeliveryRepository(db)
 
