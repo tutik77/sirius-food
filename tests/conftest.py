@@ -17,6 +17,7 @@ os.environ.update(
     BCRYPT_ROUNDS="4",
 )
 
+from itertools import count
 from typing import NamedTuple
 
 import pytest
@@ -24,8 +25,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import models
 from app.database import Base
+from app.domain.entities import Role, User
 from app.memory_storage import InMemoryStorage
+from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
 from app.modules.delivery.repository import (
     DeliveryRepository,
     InMemoryDeliveryRepository,
@@ -41,6 +45,7 @@ class Repos(NamedTuple):
     menu: MenuRepository
     orders: OrderRepository
     delivery: DeliveryRepository
+    auth: AuthRepository
 
 
 @pytest.fixture
@@ -52,6 +57,9 @@ def sqlite_session():
     )
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
+    # В PostgreSQL роли заводит миграция, здесь — вручную.
+    session.add_all(models.Role(name=role.value) for role in Role)
+    session.commit()
     yield session
     session.close()
     engine.dispose()
@@ -66,6 +74,7 @@ def repos(request) -> Repos:
             InMemoryMenuRepository(storage),
             InMemoryOrderRepository(storage),
             InMemoryDeliveryRepository(storage),
+            InMemoryAuthRepository(storage),
         )
     session = request.getfixturevalue("sqlite_session")
     return Repos(
@@ -73,4 +82,27 @@ def repos(request) -> Repos:
         SqlAlchemyMenuRepository(session),
         SqlAlchemyOrderRepository(session),
         SqlAlchemyDeliveryRepository(session),
+        SqlAlchemyAuthRepository(session),
     )
+
+
+_emails = count(1)
+
+
+@pytest.fixture
+def make_user(repos):
+    """Создаёт пользователя напрямую через репозиторий, минуя регистрацию."""
+
+    def factory(role: str = Role.STUDENT, balance: float = 0.0, is_blocked: bool = False) -> User:
+        return repos.users.add(
+            User(
+                id=None,
+                email=f"user{next(_emails)}@sirius.ru",
+                balance=balance,
+                is_blocked=is_blocked,
+                password_hash="!",
+                role=role,
+            )
+        )
+
+    return factory
