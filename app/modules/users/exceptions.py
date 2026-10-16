@@ -18,3 +18,11 @@ class UserBlockedError(ForbiddenError):
 
 class TopUpLimitExceededError(BusinessRuleError):
     message = "Максимальная сумма пополнения — 50000 рублей"
+
+
+class ForeignBalanceError(ForbiddenError):
+    message = "Пополнять можно только свой баланс"
+
+
+class UnknownRoleError(BusinessRuleError):
+    message = "Неизвестная роль"
