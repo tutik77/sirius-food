@@ -5,14 +5,34 @@
 а не через Base.metadata.create_all.
 """
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
+from app.modules.auth.router import router as auth_router
 from app.modules.users.router import router as users_router
 from app.modules.menu.router import router as menu_router
 from app.modules.orders.router import router as orders_router
 from app.modules.delivery.router import router as delivery_router
 
-app = FastAPI(title="Sirius.Food API")
+# В продакшене (DEBUG=False) документация API не публикуется:
+# Swagger и openapi.json раскрывают всю структуру API.
+app = FastAPI(
+    title="Sirius.Food API",
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
+)
 
+# CORS: браузерные запросы разрешены только с доменов из ALLOWED_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(users_router, prefix="/users", tags=["users"])
 app.include_router(menu_router, prefix="/menu", tags=["menu"])
 app.include_router(orders_router, prefix="/orders", tags=["orders"])
