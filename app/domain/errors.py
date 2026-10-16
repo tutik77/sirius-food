@@ -21,8 +21,12 @@ class NotFoundError(DomainError):
     """Запрошенный объект не существует."""
 
 
+class UnauthorizedError(DomainError):
+    """Не удалось подтвердить, кто выполняет запрос (неверный пароль, токен)."""
+
+
 class ForbiddenError(DomainError):
-    """Операция запрещена для этого субъекта (например, он заблокирован)."""
+    """Операция запрещена для этого субъекта: чужой объект, блокировка и т. п."""
 
 
 class BusinessRuleError(DomainError):
