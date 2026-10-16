@@ -8,6 +8,8 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.modules.delivery.repository import DeliveryRepository, SqlAlchemyDeliveryRepository
+from app.modules.delivery.service import DeliveryService
 from app.modules.menu.repository import MenuRepository, SqlAlchemyMenuRepository
 from app.modules.menu.service import MenuService
 from app.modules.orders.repository import OrderRepository, SqlAlchemyOrderRepository
@@ -38,3 +40,13 @@ def get_order_repository(db: Session = Depends(get_db)) -> OrderRepository:
 
 def get_order_service(repository: OrderRepository = Depends(get_order_repository)) -> OrderService:
     return OrderService(repository)
+
+
+def get_delivery_repository(db: Session = Depends(get_db)) -> DeliveryRepository:
+    return SqlAlchemyDeliveryRepository(db)
+
+
+def get_delivery_service(
+    repository: DeliveryRepository = Depends(get_delivery_repository),
+) -> DeliveryService:
+    return DeliveryService(repository)
