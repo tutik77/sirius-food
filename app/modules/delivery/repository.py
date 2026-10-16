@@ -1,13 +1,18 @@
 """
 Инфраструктурный слой модуля доставки (круг Interface Adapters).
+
+DeliveryRepository — абстрактный интерфейс, от которого зависит сервис.
+Реализации: SqlAlchemyDeliveryRepository (PostgreSQL) и InMemoryDeliveryRepository.
 """
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.entities import Delivery, DeliveryStatus, Order, User
 from app.mappers import to_delivery, to_order, to_user
+from app.memory_storage import InMemoryStorage, copy
 
 
 class DeliveryRepository(ABC):
@@ -83,3 +88,40 @@ class SqlAlchemyDeliveryRepository(DeliveryRepository):
         if order is not None:
             self.db.get(models.Order, order.id).status = order.status
         self.db.commit()
+
+
+class InMemoryDeliveryRepository(DeliveryRepository):
+    """Реализация репозитория доставки в памяти процесса."""
+
+    def __init__(self, storage: InMemoryStorage):
+        self.storage = storage
+
+    def get_order(self, order_id: int) -> Order | None:
+        return copy(self.storage.orders.get(order_id))
+
+    def get_user(self, user_id: int) -> User | None:
+        return copy(self.storage.users.get(user_id))
+
+    def get_delivery(self, delivery_id: int) -> Delivery | None:
+        return copy(self.storage.deliveries.get(delivery_id))
+
+    def find_active_by_courier(self, courier_id: int) -> Delivery | None:
+        found = next(
+            (
+                d
+                for d in self.storage.deliveries.values()
+                if d.courier_id == courier_id and d.status == DeliveryStatus.IN_PROGRESS
+            ),
+            None,
+        )
+        return copy(found)
+
+    def add(self, delivery: Delivery) -> Delivery:
+        saved = replace(delivery, id=self.storage.next_id("deliveries"))
+        self.storage.deliveries[saved.id] = saved
+        return copy(saved)
+
+    def save_completion(self, delivery: Delivery, order: Order | None) -> None:
+        self.storage.deliveries[delivery.id] = copy(delivery)
+        if order is not None:
+            self.storage.orders[order.id] = copy(order)

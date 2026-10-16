@@ -1,13 +1,18 @@
 """
 Инфраструктурный слой модуля пользователей (круг Interface Adapters).
+
+UserRepository — абстрактный интерфейс, от которого зависит сервис.
+Реализации: SqlAlchemyUserRepository (PostgreSQL) и InMemoryUserRepository.
 """
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.entities import User
 from app.mappers import to_user
+from app.memory_storage import InMemoryStorage, copy
 
 
 class UserRepository(ABC):
@@ -65,3 +70,26 @@ class SqlAlchemyUserRepository(UserRepository):
         self.db.commit()
         self.db.refresh(row)
         return to_user(row)
+
+
+class InMemoryUserRepository(UserRepository):
+    """Реализация репозитория пользователей в памяти процесса."""
+
+    def __init__(self, storage: InMemoryStorage):
+        self.storage = storage
+
+    def get_by_id(self, user_id: int) -> User | None:
+        return copy(self.storage.users.get(user_id))
+
+    def get_by_email(self, email: str) -> User | None:
+        found = next((u for u in self.storage.users.values() if u.email == email), None)
+        return copy(found)
+
+    def add(self, user: User) -> User:
+        saved = replace(user, id=self.storage.next_id("users"))
+        self.storage.users[saved.id] = saved
+        return copy(saved)
+
+    def update(self, user: User) -> User:
+        self.storage.users[user.id] = copy(user)
+        return copy(user)
