@@ -23,6 +23,10 @@ class MenuService:
     def __init__(self, repository: MenuRepository):
         self.repository = repository
 
+    def list_items(self) -> list[MenuItem]:
+        """Меню целиком."""
+        return self.repository.list_all()
+
     def create_item(self, name: str, price: float) -> MenuItem:
         """Добавляет блюдо. Название должно быть уникальным."""
         self._check_price(price)

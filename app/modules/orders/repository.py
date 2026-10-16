@@ -27,11 +27,27 @@ class OrderRepository(ABC):
         """Блюдо по идентификатору или None."""
 
     @abstractmethod
+    def get_order(self, order_id: int) -> Order | None:
+        """Заказ по идентификатору или None."""
+
+    @abstractmethod
+    def list_by_user(self, user_id: int) -> list[Order]:
+        """Заказы пользователя."""
+
+    @abstractmethod
+    def list_by_status(self, status: str) -> list[Order]:
+        """Заказы в указанном статусе."""
+
+    @abstractmethod
     def save_order(self, order: Order, payer: User) -> Order:
         """
         Сохраняет новый заказ и новый баланс покупателя одной транзакцией.
         Возвращает заказ с присвоенным идентификатором.
         """
+
+    @abstractmethod
+    def save_cancellation(self, order: Order, payer: User) -> None:
+        """Сохраняет отменённый заказ и возврат денег покупателю одной транзакцией."""
 
 
 class SqlAlchemyOrderRepository(OrderRepository):
@@ -48,6 +64,18 @@ class SqlAlchemyOrderRepository(OrderRepository):
         row = self.db.get(models.MenuItem, item_id)
         return to_menu_item(row) if row else None
 
+    def get_order(self, order_id: int) -> Order | None:
+        row = self.db.get(models.Order, order_id)
+        return to_order(row) if row else None
+
+    def list_by_user(self, user_id: int) -> list[Order]:
+        rows = self.db.query(models.Order).filter(models.Order.user_id == user_id).order_by(models.Order.id)
+        return [to_order(row) for row in rows]
+
+    def list_by_status(self, status: str) -> list[Order]:
+        rows = self.db.query(models.Order).filter(models.Order.status == status).order_by(models.Order.id)
+        return [to_order(row) for row in rows]
+
     def save_order(self, order: Order, payer: User) -> Order:
         user_row = self.db.get(models.User, payer.id)
         user_row.balance = payer.balance
@@ -57,11 +85,17 @@ class SqlAlchemyOrderRepository(OrderRepository):
             item_id=order.item_id,
             quantity=order.quantity,
             status=order.status,
+            total_cost=order.total_cost,
         )
         self.db.add(order_row)
         self.db.commit()
         self.db.refresh(order_row)
         return to_order(order_row)
+
+    def save_cancellation(self, order: Order, payer: User) -> None:
+        self.db.get(models.Order, order.id).status = order.status
+        self.db.get(models.User, payer.id).balance = payer.balance
+        self.db.commit()
 
 
 class InMemoryOrderRepository(OrderRepository):
@@ -76,8 +110,21 @@ class InMemoryOrderRepository(OrderRepository):
     def get_menu_item_by_id(self, item_id: int) -> MenuItem | None:
         return copy(self.storage.menu_items.get(item_id))
 
+    def get_order(self, order_id: int) -> Order | None:
+        return copy(self.storage.orders.get(order_id))
+
+    def list_by_user(self, user_id: int) -> list[Order]:
+        return [copy(o) for o in self.storage.orders.values() if o.user_id == user_id]
+
+    def list_by_status(self, status: str) -> list[Order]:
+        return [copy(o) for o in self.storage.orders.values() if o.status == status]
+
     def save_order(self, order: Order, payer: User) -> Order:
         saved = replace(order, id=self.storage.next_id("orders"))
         self.storage.users[payer.id] = copy(payer)
         self.storage.orders[saved.id] = saved
         return copy(saved)
+
+    def save_cancellation(self, order: Order, payer: User) -> None:
+        self.storage.orders[order.id] = copy(order)
+        self.storage.users[payer.id] = copy(payer)

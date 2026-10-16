@@ -20,12 +20,22 @@ class CourierBlockedError(ForbiddenError):
     message = "Курьер заблокирован и не может быть назначен"
 
 
+class NotACourierError(BusinessRuleError):
+    message = "Назначить можно только пользователя с ролью courier"
+
+
 class CourierBusyError(BusinessRuleError):
     message = "У курьера уже есть активная доставка"
 
 
 class DeliveryNotFoundError(NotFoundError):
     message = "Доставка не найдена"
+
+
+class DeliveryAccessDeniedError(ForbiddenError):
+    """Пользователь не имеет прав на эту доставку (защита от IDOR)."""
+
+    message = "Нет доступа к чужой доставке"
 
 
 class DeliveryAlreadyCompletedError(BusinessRuleError):

@@ -35,6 +35,10 @@ class DeliveryRepository(ABC):
         """Доставка курьера в статусе in_progress или None."""
 
     @abstractmethod
+    def list_by_courier(self, courier_id: int) -> list[Delivery]:
+        """Все доставки курьера."""
+
+    @abstractmethod
     def add(self, delivery: Delivery) -> Delivery:
         """Сохраняет новую доставку, возвращает её с идентификатором."""
 
@@ -71,6 +75,14 @@ class SqlAlchemyDeliveryRepository(DeliveryRepository):
             .first()
         )
         return to_delivery(row) if row else None
+
+    def list_by_courier(self, courier_id: int) -> list[Delivery]:
+        rows = (
+            self.db.query(models.Delivery)
+            .filter(models.Delivery.courier_id == courier_id)
+            .order_by(models.Delivery.id)
+        )
+        return [to_delivery(row) for row in rows]
 
     def add(self, delivery: Delivery) -> Delivery:
         row = models.Delivery(
@@ -115,6 +127,9 @@ class InMemoryDeliveryRepository(DeliveryRepository):
             None,
         )
         return copy(found)
+
+    def list_by_courier(self, courier_id: int) -> list[Delivery]:
+        return [copy(d) for d in self.storage.deliveries.values() if d.courier_id == courier_id]
 
     def add(self, delivery: Delivery) -> Delivery:
         saved = replace(delivery, id=self.storage.next_id("deliveries"))
