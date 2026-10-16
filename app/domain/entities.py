@@ -6,13 +6,22 @@
 их в строки таблиц и обратно.
 """
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
+
+
+class Role(StrEnum):
+    STUDENT = "student"
+    COOK = "cook"
+    COURIER = "courier"
+    ADMIN = "admin"
 
 
 class OrderStatus(StrEnum):
     PROCESSING = "processing"
     PAID = "paid"
     DELIVERED = "delivered"
+    CANCELLED = "cancelled"
 
 
 class DeliveryStatus(StrEnum):
@@ -29,6 +38,12 @@ class User:
     phone: str | None = None
     balance: float = 0.0
     is_blocked: bool = False
+    password_hash: str | None = None
+    role: str = Role.STUDENT
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == Role.ADMIN
 
 
 @dataclass
@@ -46,6 +61,10 @@ class Order:
     item_id: int
     quantity: int
     status: str = OrderStatus.PROCESSING
+    total_cost: float | None = None
+
+    def belongs_to(self, user: User) -> bool:
+        return self.user_id == user.id
 
 
 @dataclass
@@ -54,3 +73,14 @@ class Delivery:
     order_id: int
     courier_id: int | None
     status: str = DeliveryStatus.PENDING
+
+
+@dataclass
+class RefreshToken:
+    """Запись о выданном refresh-токене (хранится хеш, не сам токен)."""
+
+    id: int | None
+    user_id: int
+    token_hash: str
+    expires_at: datetime
+    is_revoked: bool = False

@@ -1,7 +1,7 @@
 """
 In-memory хранилище для in-memory реализаций репозиториев.
 
-Один объект InMemoryStorage — это «база данных» из четырёх словарей.
+Один объект InMemoryStorage — это «база данных» из нескольких словарей.
 Объекты копируются при записи и чтении, чтобы поведение совпадало
 с настоящей СУБД: изменение полученной сущности без вызова репозитория
 ничего не сохраняет.
@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import replace
 from typing import TypeVar
 
-from app.domain.entities import Delivery, MenuItem, Order, User
+from app.domain.entities import Delivery, MenuItem, Order, RefreshToken, User
 
 T = TypeVar("T")
 
@@ -21,6 +21,8 @@ class InMemoryStorage:
         self.menu_items: dict[int, MenuItem] = {}
         self.orders: dict[int, Order] = {}
         self.deliveries: dict[int, Delivery] = {}
+        # Ключ — хеш токена, как уникальный индекс token_hash в БД.
+        self.refresh_tokens: dict[str, RefreshToken] = {}
         self._sequences: dict[str, int] = defaultdict(int)
 
     def next_id(self, table: str) -> int:
