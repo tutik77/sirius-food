@@ -27,6 +27,10 @@ class MenuRepository(ABC):
         """Блюдо по точному названию или None."""
 
     @abstractmethod
+    def list_all(self) -> list[MenuItem]:
+        """Все блюда меню."""
+
+    @abstractmethod
     def add(self, item: MenuItem) -> MenuItem:
         """Сохраняет новое блюдо, возвращает его с идентификатором."""
 
@@ -48,6 +52,9 @@ class SqlAlchemyMenuRepository(MenuRepository):
     def get_by_name(self, name: str) -> MenuItem | None:
         row = self.db.query(models.MenuItem).filter(models.MenuItem.name == name).first()
         return to_menu_item(row) if row else None
+
+    def list_all(self) -> list[MenuItem]:
+        return [to_menu_item(row) for row in self.db.query(models.MenuItem).order_by(models.MenuItem.id)]
 
     def add(self, item: MenuItem) -> MenuItem:
         row = models.MenuItem(name=item.name, price=item.price, is_available=item.is_available)
@@ -78,6 +85,9 @@ class InMemoryMenuRepository(MenuRepository):
     def get_by_name(self, name: str) -> MenuItem | None:
         found = next((i for i in self.storage.menu_items.values() if i.name == name), None)
         return copy(found)
+
+    def list_all(self) -> list[MenuItem]:
+        return [copy(i) for i in self.storage.menu_items.values()]
 
     def add(self, item: MenuItem) -> MenuItem:
         saved = replace(item, id=self.storage.next_id("menu_items"))

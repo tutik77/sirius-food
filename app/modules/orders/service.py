@@ -4,18 +4,21 @@
 Импорты fastapi и sqlalchemy здесь запрещены: сервис зависит только
 от доменных сущностей и абстрактного OrderRepository.
 """
-from app.domain.entities import Order, OrderStatus
+from app.domain.entities import Order, OrderStatus, User
 from app.modules.orders.exceptions import (
+    AccessDeniedError,
     InsufficientFundsError,
     MenuItemNotFoundError,
     MenuItemUnavailableError,
+    OrderCannotBeCancelledError,
+    OrderNotFoundError,
     UserNotFoundError,
 )
 from app.modules.orders.repository import OrderRepository
 
 
 class OrderService:
-    """Бизнес-правила оформления заказов."""
+    """Бизнес-правила оформления и отмены заказов."""
 
     def __init__(self, repository: OrderRepository):
         # Зависимость приходит снаружи через конструктор (инверсия зависимостей).
@@ -25,6 +28,7 @@ class OrderService:
         """
         Сценарий оформления заказа: проверяет пользователя, блюдо и баланс,
         списывает стоимость и сохраняет заказ.
+        user_id приходит из JWT, а не из тела запроса.
         """
         user = self.repository.get_user_by_id(user_id)
         if user is None:
@@ -47,5 +51,33 @@ class OrderService:
             item_id=item.id,
             quantity=quantity,
             status=OrderStatus.PROCESSING,
+            total_cost=total_cost,
         )
         return self.repository.save_order(order, payer=user)
+
+    def cancel_order(self, order_id: int, current_user: User) -> Order:
+        """
+        Отменяет заказ и возвращает деньги. Защита от IDOR: отменить можно
+        только свой заказ (администратор — любой), и только пока он готовится.
+        """
+        order = self.repository.get_order(order_id)
+        if order is None:
+            raise OrderNotFoundError()
+        if not order.belongs_to(current_user) and not current_user.is_admin:
+            raise AccessDeniedError()
+        if order.status != OrderStatus.PROCESSING:
+            raise OrderCannotBeCancelledError()
+
+        payer = self.repository.get_user_by_id(order.user_id)
+        payer.balance += order.total_cost or 0.0
+        order.status = OrderStatus.CANCELLED
+        self.repository.save_cancellation(order, payer)
+        return order
+
+    def list_user_orders(self, current_user: User) -> list[Order]:
+        """Заказы текущего пользователя — только его собственные."""
+        return self.repository.list_by_user(current_user.id)
+
+    def get_kitchen_orders(self) -> list[Order]:
+        """Очередь кухни: заказы, которые нужно приготовить."""
+        return self.repository.list_by_status(OrderStatus.PROCESSING)

@@ -1,14 +1,16 @@
 """
 Слой бизнес-логики модуля доставки (круги Entities и Use Cases).
 """
-from app.domain.entities import Delivery, DeliveryStatus, OrderStatus
+from app.domain.entities import Delivery, DeliveryStatus, OrderStatus, Role, User
 from app.modules.delivery.exceptions import (
     CourierBlockedError,
     CourierBusyError,
     CourierNotFoundError,
+    DeliveryAccessDeniedError,
     DeliveryAlreadyCompletedError,
     DeliveryCancelledError,
     DeliveryNotFoundError,
+    NotACourierError,
     OrderNotFoundError,
     OrderNotPaidError,
 )
@@ -23,8 +25,8 @@ class DeliveryService:
 
     def assign_courier(self, order_id: int, courier_id: int) -> Delivery:
         """
-        Назначает курьера на заказ. Заказ должен быть оплачен,
-        курьер — существовать, не быть заблокированным и не иметь активной доставки.
+        Назначает курьера на заказ. Заказ должен быть оплачен; курьер — существовать,
+        иметь роль courier, не быть заблокированным и не иметь активной доставки.
         """
         order = self.repository.get_order(order_id)
         if order is None:
@@ -37,6 +39,8 @@ class DeliveryService:
             raise CourierNotFoundError()
         if courier.is_blocked:
             raise CourierBlockedError()
+        if courier.role != Role.COURIER:
+            raise NotACourierError()
 
         if self.repository.find_active_by_courier(courier_id) is not None:
             raise CourierBusyError()
@@ -49,11 +53,36 @@ class DeliveryService:
         )
         return self.repository.add(delivery)
 
-    def complete_delivery(self, delivery_id: int) -> Delivery:
-        """Завершает доставку и переводит заказ в статус delivered."""
+    def get_delivery(self, delivery_id: int, current_user: User) -> Delivery:
+        """
+        Доставку видят только назначенный курьер, студент, чей это заказ,
+        и администратор. Остальным — отказ (защита от IDOR).
+        """
         delivery = self.repository.get_delivery(delivery_id)
         if delivery is None:
             raise DeliveryNotFoundError()
+        if current_user.is_admin or delivery.courier_id == current_user.id:
+            return delivery
+
+        order = self.repository.get_order(delivery.order_id)
+        if order is None or not order.belongs_to(current_user):
+            raise DeliveryAccessDeniedError()
+        return delivery
+
+    def list_courier_deliveries(self, courier: User) -> list[Delivery]:
+        """Курьер видит только свои доставки."""
+        return self.repository.list_by_courier(courier.id)
+
+    def complete_delivery(self, delivery_id: int, current_user: User) -> Delivery:
+        """
+        Завершает доставку и переводит заказ в статус delivered.
+        Завершить может только назначенный курьер или администратор.
+        """
+        delivery = self.repository.get_delivery(delivery_id)
+        if delivery is None:
+            raise DeliveryNotFoundError()
+        if delivery.courier_id != current_user.id and not current_user.is_admin:
+            raise DeliveryAccessDeniedError()
         if delivery.status == DeliveryStatus.COMPLETED:
             raise DeliveryAlreadyCompletedError()
         if delivery.status == DeliveryStatus.CANCELLED:
