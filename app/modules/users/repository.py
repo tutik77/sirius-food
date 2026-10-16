@@ -50,12 +50,8 @@ class SqlAlchemyUserRepository(UserRepository):
         return to_user(row) if row else None
 
     def add(self, user: User) -> User:
-        row = models.User(
-            email=user.email,
-            phone=user.phone,
-            balance=user.balance,
-            is_blocked=user.is_blocked,
-        )
+        row = models.User()
+        self._fill(row, user)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -63,13 +59,18 @@ class SqlAlchemyUserRepository(UserRepository):
 
     def update(self, user: User) -> User:
         row = self.db.get(models.User, user.id)
+        self._fill(row, user)
+        self.db.commit()
+        self.db.refresh(row)
+        return to_user(row)
+
+    def _fill(self, row: models.User, user: User) -> None:
         row.email = user.email
         row.phone = user.phone
         row.balance = user.balance
         row.is_blocked = user.is_blocked
-        self.db.commit()
-        self.db.refresh(row)
-        return to_user(row)
+        row.password_hash = user.password_hash
+        row.role = self.db.query(models.Role).filter(models.Role.name == user.role).one()
 
 
 class InMemoryUserRepository(UserRepository):
