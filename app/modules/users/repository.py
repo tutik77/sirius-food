@@ -1,0 +1,67 @@
+"""
+Инфраструктурный слой модуля пользователей (круг Interface Adapters).
+"""
+from abc import ABC, abstractmethod
+
+from sqlalchemy.orm import Session
+
+from app import models
+from app.domain.entities import User
+from app.mappers import to_user
+
+
+class UserRepository(ABC):
+    """Хранилище пользователей."""
+
+    @abstractmethod
+    def get_by_id(self, user_id: int) -> User | None:
+        """Пользователь по идентификатору или None."""
+
+    @abstractmethod
+    def get_by_email(self, email: str) -> User | None:
+        """Пользователь по email или None."""
+
+    @abstractmethod
+    def add(self, user: User) -> User:
+        """Сохраняет нового пользователя, возвращает его с идентификатором."""
+
+    @abstractmethod
+    def update(self, user: User) -> User:
+        """Сохраняет изменения существующего пользователя."""
+
+
+class SqlAlchemyUserRepository(UserRepository):
+    """Реализация репозитория пользователей на SQLAlchemy ORM."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_id(self, user_id: int) -> User | None:
+        row = self.db.get(models.User, user_id)
+        return to_user(row) if row else None
+
+    def get_by_email(self, email: str) -> User | None:
+        row = self.db.query(models.User).filter(models.User.email == email).first()
+        return to_user(row) if row else None
+
+    def add(self, user: User) -> User:
+        row = models.User(
+            email=user.email,
+            phone=user.phone,
+            balance=user.balance,
+            is_blocked=user.is_blocked,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return to_user(row)
+
+    def update(self, user: User) -> User:
+        row = self.db.get(models.User, user.id)
+        row.email = user.email
+        row.phone = user.phone
+        row.balance = user.balance
+        row.is_blocked = user.is_blocked
+        self.db.commit()
+        self.db.refresh(row)
+        return to_user(row)
