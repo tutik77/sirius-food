@@ -14,7 +14,6 @@ from app.memory_storage import InMemoryStorage
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(container, "STORAGE_BACKEND", "memory")
     monkeypatch.setattr(container, "memory_storage", InMemoryStorage())
     return TestClient(app)
 
