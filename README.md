@@ -5,6 +5,7 @@
 
 - **ЛР № 2.** Рефакторинг MVP-модулей в Clean Architecture — [раздел ниже](#лр--2-clean-architecture), тег `pr2`.
 - **ЛР № 3.** Аутентификация и авторизация: JWT, RBAC, защита от IDOR — [раздел ниже](#лр--3-безопасность-jwt-rbac-idor), тег `pr3`.
+- **ЛР № 4.** Кеширование: Cache-Aside на Redis — [раздел ниже](#лр--4-кеширование-cache-aside-на-redis), тег `pr4`.
 
 ## Запуск
 
@@ -310,3 +311,67 @@ CI (`.github/workflows/ci.yml`): `pytest` и отдельная проверка
 (`upgrade → downgrade → upgrade`, `alembic check`).
 
 Ответы на контрольные вопросы: [docs/pr3-answers.md](docs/pr3-answers.md).
+
+---
+
+## ЛР № 4. Кеширование: Cache-Aside на Redis
+
+### Что сделано
+
+- `app/core/redis.py` — клиент Redis (`decode_responses=True`) и `check_redis_connection()`.
+- **Cache-Aside в репозитории** (`SqlAlchemyMenuRepository.list_all`): ключ `menu:all`, TTL 300 с.
+  Hit — ответ из Redis без обращения к PostgreSQL; miss — запрос в БД и запись в кеш.
+  Клиент Redis передаётся в репозиторий из `container.py`; `service.py` и `router.py` redis не импортируют
+  (это проверяет архитектурный тест `test_service_does_not_import_frameworks`).
+- **Инвалидация**: событийная — `MenuService.create_item` / `update_item` после сохранения вызывают
+  `repository.invalidate_cache()`; по времени — TTL 5 минут.
+- **Защита от cache stampede** (9 баллов): при miss в БД идёт только запрос, взявший блокировку Redis
+  `lock:menu:all` (`redis.lock`, timeout 10 с); остальные ждут её и читают уже заполненный кеш.
+- **Прогрев кеша** (10 баллов): при старте приложения (`lifespan` в `main.py`) `menu:all` заполняется
+  из БД, первый запрос уже не идёт в базу.
+- Если Redis недоступен, меню читается из PostgreSQL (медленнее, но сервис работает).
+
+### Замеры
+
+Locust, `GET /menu/items`, 500 пользователей, spawn rate 10, 90 секунд (`locustfile.py`,
+`python scripts/measure_menu_load.py before|after`). Нагрузка на БД — число транзакций PostgreSQL
+за прогон (`pg_stat_database`) и CPU контейнера `db`: Load Average на Windows-стенде недоступен.
+
+| Метрика | До (без кеша) | После (Redis) |
+|---|---|---|
+| Запросов всего | 701 | 24 109 |
+| RPS | 8,5 | 270,5 |
+| Ошибок | 80 (11,4 %): `QueuePool limit … reached` | 0 |
+| Медиана | 32 мс | 1 100 мс |
+| 95-й перцентиль | 71 000 мс | 1 600 мс |
+| Максимум | 75 360 мс | 5 234 мс |
+| Транзакций в PostgreSQL за прогон | 623 | 9 |
+| CPU контейнера db, макс. | 8,7 % | 0,3 % |
+
+![RPS и p95 до и после](docs/pr4/before_after.png)
+
+Без кеша каждый запрос занимает соединение из пула SQLAlchemy (5 + 10). На 20-й секунде пул
+кончается: запросы ждут соединение по 30 секунд и падают с 500, RPS падает до нуля.
+С кешем запросы не берут соединение с БД вообще (сессия не открывает соединение, пока нет SQL),
+и сервис держит 250–370 RPS без ошибок, PostgreSQL получает только служебные запросы.
+Медиана 1,1 с после внедрения — предел одного процесса uvicorn на стенде, где на том же ноутбуке
+работает и Locust с 500 пользователями. Одиночный запрос без нагрузки: hit около 9 мс, miss около 18 мс
+(`scripts/demo_cache.py`).
+
+Отчёты Locust с графиками: [before.html](docs/pr4/before.html), [after.html](docs/pr4/after.html);
+CSV и `*_db.json` — в `docs/pr4/`. График строится `scripts/plot_menu_load.py`.
+
+### Проверка
+
+```bash
+docker compose up -d db redis
+uvicorn app.main:app                          # при старте прогревается menu:all
+python scripts/demo_cache.py                  # miss → hit → POST блюда → новое блюдо сразу в меню
+docker compose exec redis redis-cli ttl menu:all
+```
+
+Тесты `tests/unit/test_menu_cache.py` (SQLite + fakeredis): hit не обращается к БД, miss заполняет кеш
+с TTL, создание и изменение блюда сбрасывают кеш, прогрев, работа при упавшем Redis,
+10 параллельных запросов при пустом кеше дают один запрос в БД.
+
+Ответы на контрольные вопросы: [docs/pr4-answers.md](docs/pr4-answers.md).
