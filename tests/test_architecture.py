@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 APP = Path(__file__).resolve().parent.parent / "app"
-FORBIDDEN_IN_SERVICE = {"fastapi", "sqlalchemy", "starlette"}
+FORBIDDEN_IN_SERVICE = {"fastapi", "sqlalchemy", "starlette", "redis"}
 
 
 def imported_packages(path: Path) -> set[str]:

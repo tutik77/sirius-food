@@ -10,7 +10,8 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.database import get_db
+from app.core.redis import redis_client
+from app.database import SessionLocal, get_db
 from app.memory_storage import InMemoryStorage
 from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
 from app.modules.auth.service import AuthService
@@ -61,7 +62,15 @@ def get_user_service(repository: UserRepository = Depends(get_user_repository)) 
 def get_menu_repository(db: Session | None = Depends(get_session)) -> MenuRepository:
     if settings.STORAGE_BACKEND == "memory":
         return InMemoryMenuRepository(memory_storage)
-    return SqlAlchemyMenuRepository(db)
+    return SqlAlchemyMenuRepository(db, cache=redis_client)
+
+
+def warm_up_menu_cache() -> None:
+    """Заполняет кеш меню при старте приложения (cache warm-up)."""
+    if settings.STORAGE_BACKEND == "memory":
+        return
+    with SessionLocal() as db:
+        SqlAlchemyMenuRepository(db, cache=redis_client).warm_up()
 
 
 def get_menu_service(repository: MenuRepository = Depends(get_menu_repository)) -> MenuService:
