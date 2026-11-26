@@ -35,7 +35,10 @@ class MenuService:
         if self.repository.get_by_name(name) is not None:
             raise DuplicateMenuItemError()
 
-        return self.repository.add(MenuItem(id=None, name=name, price=price, is_available=True))
+        saved = self.repository.add(MenuItem(id=None, name=name, price=price, is_available=True))
+        # Меню изменилось: сбрасываем кеш, чтобы новое блюдо было видно сразу.
+        self.repository.invalidate_cache()
+        return saved
 
     def update_item(
         self,
@@ -58,7 +61,9 @@ class MenuService:
         if is_available is not None:
             item.is_available = is_available
 
-        return self.repository.update(item)
+        saved = self.repository.update(item)
+        self.repository.invalidate_cache()
+        return saved
 
     @staticmethod
     def _check_price(price: float) -> None:
