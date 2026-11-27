@@ -54,3 +54,7 @@ def test_service_does_not_import_frameworks(service):
 @pytest.mark.parametrize("path", sorted((APP / "domain").glob("*.py")), ids=lambda p: p.name)
 def test_domain_layer_is_framework_free(path):
     assert not imported_packages(path) & FORBIDDEN_IN_SERVICE
+
+
+def test_ci_must_block_merge_when_red():
+    assert 1 == 2
