@@ -23,6 +23,14 @@ def list_menu_items(service: MenuService = Depends(get_menu_service)):
     return service.list_items()
 
 
+@router.get("/items/{item_id}", response_model=MenuItemResponse)
+def get_menu_item(item_id: int, service: MenuService = Depends(get_menu_service)):
+    try:
+        return service.get_item(item_id)
+    except DomainError as e:
+        raise to_http(e)
+
+
 @router.post("/items")
 def create_menu_item(
     payload: MenuItemCreate,

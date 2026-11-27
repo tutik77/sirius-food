@@ -65,3 +65,12 @@ def test_update_with_invalid_price_changes_nothing(service, repos):
         service.update_item(item.id, name="Щи", price=-1)
 
     assert repos.menu.get_by_id(item.id).name == "Борщ"
+
+
+def test_get_item_returns_item_or_raises(repos):
+    service = MenuService(repos.menu)
+    item = service.create_item("Сырники", 150)
+
+    assert service.get_item(item.id).name == "Сырники"
+    with pytest.raises(MenuItemNotFoundError):
+        service.get_item(999)
