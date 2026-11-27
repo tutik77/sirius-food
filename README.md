@@ -9,6 +9,7 @@
 - **ЛР № 5.** Фоновые задачи: Celery, ретраи, DLQ, Flower, Beat — [раздел ниже](#лр--5-фоновые-задачи-celery), тег `pr5`.
 - **ЛР № 6.** Strangler Fig: delivery в gRPC-микросервис, стриминг — [раздел ниже](#лр--6-strangler-fig-delivery-в-grpc-микросервис), тег `pr6`.
 - **ЛР № 7.** Event-driven: RabbitMQ, Saga, Transactional Outbox, DLQ — [раздел ниже](#лр--7-event-driven-rabbitmq-saga-transactional-outbox), тег `pr7`.
+- **ЛР № 8.** SSR-витрина на Next.js: ISR, SEO, сравнение с CSR — [раздел ниже](#лр--8-ssr-витрина-на-nextjs), тег `pr8`.
 
 ## Запуск
 
@@ -615,3 +616,57 @@ python -m scripts.demo_events --outbox
 Saga отменяет заказ и возвращает деньги ровно один раз; relay публикует и помечает события.
 
 Ответы на контрольные вопросы: [docs/pr7-answers.md](docs/pr7-answers.md).
+
+---
+
+## ЛР № 8. SSR-витрина на Next.js
+
+Вариант А (шаблон из Moodle), фронтенд в `frontend/`. Бэкенд: добавлен `GET /menu/items/{id}` (404, если блюда нет),
+`scripts/seed_menu.py` наполняет меню.
+
+### Что сделано
+
+- `frontend/src/app/menu/page.tsx` — async Server Component: `getMenuItems()` выполняется на сервере Next.js,
+  блюда приходят в HTML.
+- `frontend/src/app/menu/[id]/page.tsx` — динамический маршрут: `await params`, `getMenuItem(id)`,
+  `notFound()` для несуществующего блюда.
+- `loading.tsx` — скелетон, пока сервер ждёт данные; `error.tsx` (`"use client"`) — понятная ошибка
+  и кнопка «Попробовать снова» (`reset`), если API недоступен (8 баллов).
+- **ISR и SEO** (9 баллов, вариант А): `export const revalidate = 60` на страницах и `next: { revalidate: 60 }`
+  в `src/lib/api.ts`; `generateMetadata` у карточки блюда — `<title>`, `description`, `og:title`; метаданные меню.
+- **CSR-версия** `/menu-csr` (10 баллов): `"use client"`, загрузка через `useEffect` + `fetch(..., { cache: "no-store" })`.
+
+### Запуск
+
+```bash
+uvicorn app.main:app                 # бэкенд на 127.0.0.1:8000, ALLOWED_ORIGINS включает http://localhost:3000
+python -m scripts.seed_menu
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev                          # или npm run build && npm start для проверки ISR
+```
+
+Проверки: `curl -s http://localhost:3000/menu | grep Сырники` — блюдо есть в HTML;
+`/menu/1` + Ctrl+U — название, цена, `<title>`, `og:title`; остановить бэкенд и открыть `/menu/999999` — `error.tsx`.
+
+### SSR и CSR
+
+Production-сборка (`npm start`), кеш браузера выключен, по 3 замера на страницу.
+FCP — first contentful paint, «блюда в DOM» — момент появления первой карточки блюда.
+
+| Метрика | SSR: `/menu` | CSR: `/menu-csr` |
+|---|---|---|
+| Данные в Ctrl+U | есть | нет |
+| FCP, мс (3 замера) | 136 / 120 / 152 | 100 / 104 / 104 |
+| Блюда в DOM, мс (3 замера) | 35 / 32 / 35 | 128 / 197 / 196 |
+| Первый контент | сразу с данными | каркас, данные после JS |
+| Запрос к API из браузера | нет | есть (1) |
+
+Вывод. SSR показывает меню сразу: блюда приходят в первом же HTML и появляются в DOM на ~35 мс, а CSR сначала
+рисует пустой каркас (его FCP чуть раньше — страница легче), и блюда появляются только после загрузки JS
+и запроса к API, в 4–6 раз позже. Поисковик и превью в мессенджерах видят у SSR готовое меню, у CSR — пустую
+страницу. Для публичной витрины, где важны первая загрузка и SEO, выбираем SSR/ISR; CSR оставляем для
+личного кабинета и интерактивных экранов за авторизацией, где SEO не нужен.
+
+Ответы на контрольные вопросы: [docs/pr8-answers.md](docs/pr8-answers.md).
