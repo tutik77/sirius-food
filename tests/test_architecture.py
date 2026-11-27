@@ -21,13 +21,29 @@ def imported_packages(path: Path) -> set[str]:
     return packages
 
 
-SERVICES = sorted(APP.glob("modules/*/service.py"))
+SERVICES = sorted([*APP.glob("modules/*/service.py"), APP.parent / "delivery_service" / "service.py"])
+
+
+ROOT = APP.parent
 
 
 def test_all_modules_have_three_layers():
-    for module in ("auth", "users", "menu", "orders", "delivery"):
+    for module in ("auth", "users", "menu", "orders"):
         for layer in ("router.py", "service.py", "repository.py"):
             assert (APP / "modules" / module / layer).exists(), f"{module}/{layer}"
+
+
+def test_delivery_is_extracted_to_grpc_service():
+    for layer in ("router.py", "gateway.py", "grpc_client.py"):
+        assert (APP / "modules" / "delivery" / layer).exists(), layer
+    for layer in ("service.py", "repository.py", "server.py"):
+        assert (ROOT / "delivery_service" / layer).exists(), layer
+    assert (ROOT / "proto" / "delivery.proto").exists()
+
+
+def test_monolith_does_not_touch_delivery_storage():
+    for path in (APP / "modules" / "delivery").glob("*.py"):
+        assert "delivery_service" not in imported_packages(path), path.name
 
 
 @pytest.mark.parametrize("service", SERVICES, ids=lambda p: p.parent.name)

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(min_length=32)
     DATABASE_URL: str
     REDIS_URL: str = "redis://127.0.0.1:6379"
+    DELIVERY_GRPC_ADDR: str = "127.0.0.1:50051"
     DEBUG: bool = False
     ALLOWED_ORIGINS: list[str] = []
 

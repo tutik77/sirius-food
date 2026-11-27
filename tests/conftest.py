@@ -30,7 +30,7 @@ from app.database import Base
 from app.domain.entities import Role, User
 from app.memory_storage import InMemoryStorage
 from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
-from app.modules.delivery.repository import (
+from delivery_service.repository import (
     DeliveryRepository,
     InMemoryDeliveryRepository,
     SqlAlchemyDeliveryRepository,
@@ -116,3 +116,23 @@ def scheduled_tasks(monkeypatch):
     for task in (orders.generate_order_pdf, orders.send_order_email, orders.send_order_sms):
         monkeypatch.setattr(task, "delay", lambda *args, name=task.name: calls.append((name, args)))
     return calls
+
+
+@pytest.fixture(scope="session", autouse=True)
+def delivery_grpc_server():
+    from contextlib import nullcontext
+
+    from app import container
+    from app.core.config import settings
+    from delivery_service.repository import InMemoryDeliveryRepository
+    from delivery_service.server import create_server
+    from delivery_service.service import DeliveryService
+
+    def memory_scope():
+        return nullcontext(DeliveryService(InMemoryDeliveryRepository(container.memory_storage)))
+
+    server, port = create_server("127.0.0.1:0", memory_scope)
+    server.start()
+    settings.DELIVERY_GRPC_ADDR = f"127.0.0.1:{port}"
+    yield settings.DELIVERY_GRPC_ADDR
+    server.stop(0)

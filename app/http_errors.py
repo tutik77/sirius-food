@@ -8,6 +8,7 @@ from app.domain.errors import (
     DomainError,
     ForbiddenError,
     NotFoundError,
+    ServiceUnavailableError,
     UnauthorizedError,
 )
 
@@ -16,6 +17,7 @@ STATUS_BY_ERROR = {
     UnauthorizedError: 401,
     ForbiddenError: 403,
     BusinessRuleError: 400,
+    ServiceUnavailableError: 503,
 }
 
 

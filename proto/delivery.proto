@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package delivery;
+
+service DeliveryService {
+  rpc AssignCourier(AssignCourierRequest) returns (DeliveryReply);
+  rpc GetDelivery(GetDeliveryRequest) returns (DeliveryReply);
+  rpc ListCourierDeliveries(ListCourierDeliveriesRequest) returns (DeliveryList);
+  rpc CompleteDelivery(CompleteDeliveryRequest) returns (DeliveryReply);
+  rpc TrackDelivery(TrackDeliveryRequest) returns (stream DeliveryStatusUpdate);
+  rpc ChatWithCourier(stream ChatMessage) returns (stream ChatMessage);
+}
+
+message Actor {
+  int32 user_id = 1;
+  string role = 2;
+}
+
+message AssignCourierRequest {
+  int32 order_id = 1;
+  int32 courier_id = 2;
+}
+
+message GetDeliveryRequest {
+  int32 delivery_id = 1;
+  Actor actor = 2;
+}
+
+message ListCourierDeliveriesRequest {
+  int32 courier_id = 1;
+}
+
+message CompleteDeliveryRequest {
+  int32 delivery_id = 1;
+  Actor actor = 2;
+}
+
+message TrackDeliveryRequest {
+  int32 delivery_id = 1;
+  Actor actor = 2;
+}
+
+message DeliveryReply {
+  int32 id = 1;
+  int32 order_id = 2;
+  optional int32 courier_id = 3;
+  string status = 4;
+}
+
+message DeliveryList {
+  repeated DeliveryReply deliveries = 1;
+}
+
+message DeliveryStatusUpdate {
+  int32 delivery_id = 1;
+  string status = 2;
+}
+
+message ChatMessage {
+  int32 delivery_id = 1;
+  string sender = 2;
+  string text = 3;
+}
