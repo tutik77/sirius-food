@@ -32,3 +32,7 @@ class AccessDeniedError(ForbiddenError):
 
 class OrderCannotBeCancelledError(BusinessRuleError):
     message = "Отменить можно только заказ, который ещё готовится"
+
+
+class OrderCannotBePaidError(BusinessRuleError):
+    message = "Оплатить можно только заказ, который ещё не оплачен и не отменён"

@@ -61,6 +61,20 @@ def cancel_order(
     return {"status": "success"}
 
 
+@router.post("/{order_id}/pay")
+def pay_order(
+    order_id: int,
+    current_user: User = Depends(require_role(Role.STUDENT)),
+    service: OrderService = Depends(get_order_service),
+):
+    try:
+        order = service.pay_order(order_id, current_user)
+    except DomainError as e:
+        raise to_http(e)
+
+    return {"status": "success", "order_status": order.status}
+
+
 @router.get("/kitchen/orders", response_model=list[OrderResponse])
 def kitchen_orders(
     current_user: User = Depends(require_role(Role.COOK, Role.ADMIN)),

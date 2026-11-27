@@ -11,6 +11,7 @@ from dataclasses import replace
 from typing import TypeVar
 
 from app.domain.entities import Delivery, MenuItem, Order, RefreshToken, User
+from app.domain.events import Event
 
 T = TypeVar("T")
 
@@ -23,6 +24,7 @@ class InMemoryStorage:
         self.deliveries: dict[int, Delivery] = {}
         # Ключ — хеш токена, как уникальный индекс token_hash в БД.
         self.refresh_tokens: dict[str, RefreshToken] = {}
+        self.outbox: list[Event] = []
         self._sequences: dict[str, int] = defaultdict(int)
 
     def next_id(self, table: str) -> int:

@@ -15,5 +15,15 @@ services:
     ports:
       - "6379:6379"
 
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: sirius_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: sirius
+      RABBITMQ_DEFAULT_PASS: sirius
+
 volumes:
   pg_data:

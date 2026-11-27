@@ -10,6 +10,7 @@ from delivery_service.exceptions import (
     DeliveryAlreadyCompletedError,
     DeliveryCancelledError,
     DeliveryNotFoundError,
+    NoFreeCourierError,
     NotACourierError,
     OrderNotFoundError,
     OrderNotPaidError,
@@ -52,6 +53,12 @@ class DeliveryService:
             status=DeliveryStatus.IN_PROGRESS,
         )
         return self.repository.add(delivery)
+
+    def assign_free_courier(self, order_id: int) -> Delivery:
+        courier = self.repository.find_free_courier()
+        if courier is None:
+            raise NoFreeCourierError()
+        return self.assign_courier(order_id, courier.id)
 
     def get_delivery(self, delivery_id: int, current_user: User) -> Delivery:
         """

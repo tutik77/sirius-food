@@ -12,8 +12,10 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.entities import MenuItem, Order, User
+from app.domain.events import Event
 from app.mappers import to_menu_item, to_order, to_user
 from app.memory_storage import InMemoryStorage, copy
+from app.messaging.outbox import to_outbox_row
 
 
 class OrderRepository(ABC):
@@ -52,6 +54,12 @@ class OrderRepository(ABC):
 
     @abstractmethod
     def count_created_between(self, start: datetime, end: datetime) -> int: ...
+
+    @abstractmethod
+    def save_payment(self, order: Order, event: Event) -> None: ...
+
+    @abstractmethod
+    def save_compensation(self, order: Order, payer: User, event: Event) -> None: ...
 
 
 class SqlAlchemyOrderRepository(OrderRepository):
@@ -108,6 +116,17 @@ class SqlAlchemyOrderRepository(OrderRepository):
             .count()
         )
 
+    def save_payment(self, order: Order, event: Event) -> None:
+        self.db.get(models.Order, order.id).status = order.status
+        self.db.add(to_outbox_row(event))
+        self.db.commit()
+
+    def save_compensation(self, order: Order, payer: User, event: Event) -> None:
+        self.db.get(models.Order, order.id).status = order.status
+        self.db.get(models.User, payer.id).balance = payer.balance
+        self.db.add(to_outbox_row(event))
+        self.db.commit()
+
 
 class InMemoryOrderRepository(OrderRepository):
     """Реализация репозитория заказов в памяти процесса."""
@@ -142,3 +161,12 @@ class InMemoryOrderRepository(OrderRepository):
 
     def count_created_between(self, start: datetime, end: datetime) -> int:
         return sum(1 for o in self.storage.orders.values() if start <= o.created_at < end)
+
+    def save_payment(self, order: Order, event: Event) -> None:
+        self.storage.orders[order.id] = copy(order)
+        self.storage.outbox.append(event)
+
+    def save_compensation(self, order: Order, payer: User, event: Event) -> None:
+        self.storage.orders[order.id] = copy(order)
+        self.storage.users[payer.id] = copy(payer)
+        self.storage.outbox.append(event)

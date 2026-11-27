@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str = "redis://127.0.0.1:6379"
     DELIVERY_GRPC_ADDR: str = "127.0.0.1:50051"
+    RABBITMQ_URL: str = "amqp://sirius:sirius@127.0.0.1:5672/"
     DEBUG: bool = False
     ALLOWED_ORIGINS: list[str] = []
 

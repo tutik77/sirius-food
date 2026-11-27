@@ -16,3 +16,4 @@ celery==5.7.0
 flower==2.2.0
 grpcio==1.85.4
 grpcio-tools==1.85.4
+aio-pika==10.2.3

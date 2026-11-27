@@ -1,7 +1,7 @@
 """
 Определение ORM-моделей предметной области «Сириус.Еда».
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, func
+from sqlalchemy import JSON, Column, Integer, String, Float, Boolean, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -78,3 +78,30 @@ class RefreshToken(Base):
     token_hash = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+
+    id = Column(String(36), primary_key=True)
+    routing_key = Column(String(100), nullable=False)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    published_at = Column(DateTime, nullable=True, index=True)
+
+
+class ProcessedEvent(Base):
+    __tablename__ = "processed_events"
+
+    consumer = Column(String(50), primary_key=True)
+    event_id = Column(String(36), primary_key=True)
+    processed_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class KitchenOrder(Base):
+    __tablename__ = "kitchen_orders"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
