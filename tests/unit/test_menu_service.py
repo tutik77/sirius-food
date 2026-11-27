@@ -35,6 +35,20 @@ def test_create_item_requires_name_of_two_chars(service):
         service.create_item("Я", 100)
 
 
+def test_name_of_exactly_two_chars_and_price_of_one_are_allowed(service):
+    item = service.create_item("Чай"[:2], 1)
+
+    assert (item.name, item.price) == ("Ча", 1)
+
+
+def test_update_renames_item(service, repos):
+    item = service.create_item("Борщ", 250)
+
+    service.update_item(item.id, name="Борщ украинский")
+
+    assert repos.menu.get_by_id(item.id).name == "Борщ украинский"
+
+
 def test_create_item_name_must_be_unique(service):
     service.create_item("Борщ", 250)
 

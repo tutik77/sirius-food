@@ -2,6 +2,7 @@
 Unit-тесты OrderService без СУБД.
 """
 import pytest
+from structlog.testing import capture_logs
 
 from app.domain.entities import MenuItem, OrderStatus, Role
 from app.modules.orders.exceptions import (
@@ -35,9 +36,26 @@ def test_create_order_charges_balance(service, repos, student, borsch):
     order = service.create_order(student.id, borsch.id, quantity=2)
 
     assert order.id is not None
+    assert (order.user_id, order.item_id, order.quantity) == (student.id, borsch.id, 2)
     assert order.status == OrderStatus.PROCESSING
     assert order.total_cost == 500
     assert repos.users.get_by_id(student.id).balance == 500
+
+
+def test_balance_equal_to_cost_is_enough(service, repos, make_user, borsch):
+    student = make_user(balance=250)
+
+    service.create_order(student.id, borsch.id, quantity=1)
+
+    assert repos.users.get_by_id(student.id).balance == 0
+
+
+def test_create_order_logs_business_event(service, student, borsch):
+    with capture_logs() as logs:
+        order = service.create_order(student.id, borsch.id, quantity=2)
+
+    assert {"event": "order_created", "order_id": order.id, "user_id": student.id, "total_cost": 500,
+            "log_level": "info"} in logs
 
 
 def test_unknown_user(service, borsch):

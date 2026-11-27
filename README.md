@@ -11,6 +11,7 @@
 - **ЛР № 7.** Event-driven: RabbitMQ, Saga, Transactional Outbox, DLQ — [раздел ниже](#лр--7-event-driven-rabbitmq-saga-transactional-outbox), тег `pr7`.
 - **ЛР № 8.** SSR-витрина на Next.js: ISR, SEO, сравнение с CSR — [раздел ниже](#лр--8-ssr-витрина-на-nextjs), тег `pr8`.
 - **ЛР № 9.** Observability: correlation ID, JSON-логи, Prometheus, Grafana, Jaeger, Sentry — [раздел ниже](#лр--9-observability-логи-метрики-трассировка), тег `pr9`.
+- **ЛР № 10.** Testcontainers, Locust, CI, Pact, mutmut — [раздел ниже](#лр--10-интеграционные-тесты-нагрузка-ci-pact-mutmut), тег `pr10`.
 
 ## Запуск
 
@@ -338,7 +339,7 @@ CI (`.github/workflows/ci.yml`): `pytest` и отдельная проверка
 
 ### Замеры
 
-Locust, `GET /menu/items`, 500 пользователей, spawn rate 10, 90 секунд (`locustfile.py`,
+Locust, `GET /menu/items`, 500 пользователей, spawn rate 10, 90 секунд (`load/menu_peak.py`,
 `python scripts/measure_menu_load.py before|after`). Нагрузка на БД — число транзакций PostgreSQL
 за прогон (`pg_stat_database`) и CPU контейнера `db`: Load Average на Windows-стенде недоступен.
 
@@ -737,3 +738,104 @@ sirius_delivery_worker: delivery_failed {order_id: 98, reason: Нет свобо
 лог consumer'а содержит ID из заголовка сообщения, `/metrics` отдаёт RED-метрики.
 
 Ответы на контрольные вопросы: [docs/pr9-answers.md](docs/pr9-answers.md).
+
+---
+
+## ЛР № 10. Интеграционные тесты, нагрузка, CI, Pact, mutmut
+
+### Пирамида тестов в проекте
+
+| Уровень | Где | Что проверяет |
+|---|---|---|
+| Unit и архитектура | `tests/unit`, `tests/test_architecture.py` и др. | сервисы на in-memory/SQLite, правила слоёв |
+| Контракт | `tests/contract` | событие `order.paid` от заказов соответствует ожиданиям кухни (Pact) |
+| Интеграция | `tests/integration` | HTTP → сервис → репозиторий → настоящая PostgreSQL в Docker |
+
+### Интеграционные тесты (Testcontainers)
+
+`tests/integration/conftest.py`: на сессию поднимается `postgres:15` через Testcontainers, схема накатывается
+`alembic upgrade head` (как в проде), после каждого теста `TRUNCATE` всех таблиц — тесты изолированы.
+`TestClient` работает с этой БД через подмену `get_session`; Redis подменён fakeredis, Celery — фикстурой.
+
+Тесты `tests/integration/test_orders.py`: заказ сохраняется в БД и списывает баланс; при нехватке денег заказа нет;
+оплата пишет заказ `paid` и событие в `outbox_events` одной транзакцией; блюдо читается из PostgreSQL, 404 для несуществующего.
+
+```bash
+pytest tests/integration -v        # 4 passed (~2 мин, нужен Docker)
+```
+
+### Нагрузочный тест (Locust)
+
+`load/mixed.py`: 70 % — `GET /menu/items`, 20 % — `GET /menu/items/{id}`, 10 % — `POST /orders/create`,
+пауза 1–3 с. Стенд — `docker compose --profile app up -d` (один процесс uvicorn).
+
+```bash
+locust -f load/mixed.py --host=http://127.0.0.1:8000     # 50 → 200 → 600 пользователей
+```
+
+| Пользователей | RPS | p95 | Ошибки | Комментарий |
+|---|---|---|---|---|
+| 50 | 25 | 42 мс | 0 | норма |
+| 200 | 97 | 89 мс (`/orders/create` — 160 мс) | 0 | latency растёт, медленнее всех создание заказа |
+| 600 | 52 | 30 000 мс | 1,1 % (500) | отказ: RPS падает, p95 > 1 с |
+
+CSV Locust — в `docs/pr10/`.
+
+**Узкое место — пул соединений PostgreSQL в монолите.** Как нашли: Prometheus (p95 по `handler`) показал, что растут
+эндпоинты, которые ходят в БД (`/orders/create` — 389 мс на 200 пользователях), а при 600 ответы упёрлись ровно в 30 с;
+в логах `sirius_app` — `sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out,
+timeout 30.00`. Пул SQLAlchemy по умолчанию — 15 соединений; запросы ждут свободное соединение 30 с, занимают потоки
+threadpool'а FastAPI (40), и тогда встают даже `GET /menu/items`, которые отдаются из Redis. CPU контейнеров при этом
+низкий — упираемся не в вычисления, а в ожидание ресурса.
+Что делать: поднять `pool_size`/`max_overflow` под число потоков и лимит PostgreSQL, уменьшить `pool_timeout`, чтобы
+быстро отдавать 503 вместо 30 с ожидания, запустить несколько воркеров uvicorn и PgBouncer, закешировать
+`/menu/items/{id}` так же, как список.
+
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` на каждый push и pull request:
+`tests` — unit, архитектура, безопасность, контракт Pact с покрытием (`--cov`);
+`integration` — Testcontainers (Docker есть на `ubuntu-latest`);
+`migrations` — `upgrade → downgrade → upgrade` и `alembic check` на PostgreSQL.
+Чтобы красный CI блокировал мерж: Settings → Branches → правило для `main` → Require status checks to pass
+(выбрать `tests`, `integration`, `migrations`).
+
+### Pact (9 баллов)
+
+`tests/contract/test_order_paid_pact.py`, контракт `tests/contract/pacts/kitchen-orders.json`:
+- потребитель (кухня) описывает ожидаемое сообщение «an order.paid event» — `event_id` (UUID) и `order_id` (целое) —
+  и проверяет, что `kitchen_consumer.handle` его обрабатывает (создаётся заказ кухни);
+- поставщик (заказы) проверяет, что `OrderPaid(...).payload()` соответствует контракту;
+- поломка контракта: если переименовать `order_id` в `id`, верификация падает
+  (`Actual map is missing the following keys: order_id`) — это закреплено тестом `test_renamed_field_breaks_contract`.
+
+### mutmut (10 баллов)
+
+Конфиг в `setup.cfg`: мутируется бизнес-логика `app/modules/orders/service.py` и `app/modules/menu/service.py`,
+тесты — `tests/unit`. mutmut не работает на Windows, поэтому запуск в Linux-контейнере на образе проекта:
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src sirius_food-app bash scripts/mutmut_run.sh
+```
+
+| | Убито | Выжило |
+|---|---|---|
+| До | 144 | 31 |
+| После | 173 | 2 |
+
+Что выживало и какие тесты добавлены:
+
+- 18 мутаций в бизнес-логах (`order_created`, `order_paid`: имя события и поля заменялись на `None` или удалялись) —
+  содержимое логов не проверялось. Добавлены `test_create_order_logs_business_event` и `test_pay_order_logs_event_id`
+  (`structlog.testing.capture_logs`): эти логи нужны для расследований из ЛР № 9.
+- Границы: `balance < total_cost` → `<=` (`test_balance_equal_to_cost_is_enough`), `len(name) < 2` → `<=` и `price <= 0` →
+  `<= 1` (`test_name_of_exactly_two_chars_and_price_of_one_are_allowed`).
+- Поля без проверок: `item_id=None` в заказе (проверка полей в `test_create_order_charges_balance`), `item.name = None`
+  (`test_update_renames_item`), поля события `OrderCancelled` (`test_compensation_refunds_once`).
+- `order.total_cost or 0.0` → `or 1.0` в оплате, отмене и компенсации: старые заказы без суммы.
+  Добавлены `test_legacy_order_without_total_is_paid_and_refunded_as_zero` и `test_cancel_legacy_order_without_total_refunds_nothing`.
+
+Две оставшиеся мутации эквивалентны: удаляется аргумент `status=OrderStatus.PROCESSING` или `is_available=True`, а это
+и есть значения по умолчанию в dataclass-ах — поведение не меняется, убить такую мутацию никакой тест не может.
+
+Ответы на контрольные вопросы: [docs/pr10-answers.md](docs/pr10-answers.md).

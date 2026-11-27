@@ -56,7 +56,7 @@ def main(label: str) -> None:
     sampler.start()
     subprocess.run(
         [
-            sys.executable, "-m", "locust", "-f", "locustfile.py", "--headless",
+            sys.executable, "-m", "locust", "-f", "load/menu_peak.py", "--headless",
             "--host", "http://127.0.0.1:8000",
             "-u", str(USERS), "-r", str(SPAWN_RATE), "--run-time", RUN_TIME,
             "--csv", str(OUT / label), "--csv-full-history", "--html", str(OUT / f"{label}.html"),

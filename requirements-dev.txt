@@ -3,3 +3,6 @@ pytest==9.1.1
 httpx==0.28.1
 fakeredis[lua]==2.40.0
 locust==2.47.0
+pytest-cov==7.1.0
+testcontainers[postgres]==4.15.0
+pact-python==4.2.0
