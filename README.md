@@ -693,6 +693,9 @@ FCP — first contentful paint, «блюда в DOM» — момент появ�
   длина очередей RabbitMQ, cache hit rate Redis.
 - **Sentry** (9 баллов): `sentry_sdk.init` при заданном `SENTRY_DSN`, тег `correlation_id` ставит middleware,
   при `DEBUG=True` есть `GET /debug/error` для проверочной ошибки 500.
+  Проверено: проект `sirius-food` в организации `sirius-food-tutik77` (sentry.io, EU);
+  `curl http://127.0.0.1:8000/debug/error -H "X-Correlation-ID: demo-sentry-42"` → в Sentry issue `RuntimeError`
+  со стектрейсом, находится поиском `correlation_id:demo-sentry-42`.
 - **OpenTelemetry + Jaeger** (10 баллов): `app/core/tracing.py`, FastAPI инструментирован, контекст трейса
   (`traceparent`) едет через outbox и RabbitMQ вместе с correlation ID, relay и consumer'ы продолжают тот же trace.
 - Весь стек запускается в Docker (`Dockerfile`, профиль `app` в `docker-compose.yml`): `sirius_app`, `sirius_kitchen`,
@@ -797,8 +800,9 @@ threadpool'а FastAPI (40), и тогда встают даже `GET /menu/items
 `tests` — unit, архитектура, безопасность, контракт Pact с покрытием (`--cov`);
 `integration` — Testcontainers (Docker есть на `ubuntu-latest`);
 `migrations` — `upgrade → downgrade → upgrade` и `alembic check` на PostgreSQL.
-Чтобы красный CI блокировал мерж: Settings → Branches → правило для `main` → Require status checks to pass
-(выбрать `tests`, `integration`, `migrations`).
+Репозиторий: https://github.com/tutik77/sirius-food, CI зелёный на `main`. Защита ветки `main`: обязательны все три
+проверки, правило действует и для администратора. Демонстрация: PR #1 (https://github.com/tutik77/sirius-food/pull/1)
+с заведомо падающим тестом — CI красный, кнопка мержа заблокирована. После показа PR закрыть без мержа.
 
 ### Pact (9 баллов)
 
