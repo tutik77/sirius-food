@@ -22,7 +22,7 @@ import psycopg2
 
 USERS, SPAWN_RATE, RUN_TIME = 500, 10, "90s"
 OUT = Path(__file__).resolve().parent.parent / "docs" / "pr4"
-DSN = "postgresql://sirius:sirius@localhost:5432/sirius_food"
+DSN = "postgresql://sirius:sirius@127.0.0.1:5432/sirius_food"
 
 
 def db_counters() -> tuple[int, int]:

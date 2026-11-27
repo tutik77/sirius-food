@@ -16,7 +16,7 @@ import redis
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-parser.add_argument("--redis-url", default="redis://localhost:6379")
+parser.add_argument("--redis-url", default="redis://127.0.0.1:6379")
 parser.add_argument("--admin-email", default="admin@sirius.ru")
 parser.add_argument("--admin-password", default="AdminPass123")
 args = parser.parse_args()
