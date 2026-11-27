@@ -1,3 +1,16 @@
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://sirius:sirius@db:5432/sirius_food
+    REDIS_URL: redis://redis:6379
+    RABBITMQ_URL: amqp://sirius:sirius@rabbitmq:5672/
+    DELIVERY_GRPC_ADDR: delivery:50051
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  depends_on: [db, redis, rabbitmq]
+  restart: unless-stopped
+  profiles: [app]
+
 services:
   db:
     image: postgres:15
@@ -21,9 +34,83 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+      - "15692:15692"
     environment:
       RABBITMQ_DEFAULT_USER: sirius
       RABBITMQ_DEFAULT_PASS: sirius
+    volumes:
+      - ./observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+
+  app:
+    <<: *app
+    container_name: sirius_app
+    ports:
+      - "8000:8000"
+
+  delivery:
+    <<: *app
+    container_name: sirius_delivery
+    command: python -m delivery_service.server
+
+  delivery_worker:
+    <<: *app
+    container_name: sirius_delivery_worker
+    command: python -m delivery_service.worker
+
+  kitchen:
+    <<: *app
+    container_name: sirius_kitchen
+    command: python -m app.workers.kitchen_consumer
+
+  orders_saga:
+    <<: *app
+    container_name: sirius_orders_saga
+    command: python -m app.workers.order_saga_consumer
+
+  outbox_relay:
+    <<: *app
+    container_name: sirius_outbox_relay
+    command: python -m app.workers.outbox_relay
+
+  celery_worker:
+    <<: *app
+    container_name: sirius_celery_worker
+    command: celery -A app.core.celery_app worker -Q default --loglevel=info
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on: [redis]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sirius_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sirius_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: sirius_jaeger
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
 
 volumes:
   pg_data:

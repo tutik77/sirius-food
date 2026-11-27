@@ -86,6 +86,7 @@ class OutboxEvent(Base):
     id = Column(String(36), primary_key=True)
     routing_key = Column(String(100), nullable=False)
     payload = Column(JSON, nullable=False)
+    headers = Column(JSON, nullable=True, default=dict)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     published_at = Column(DateTime, nullable=True, index=True)
 
