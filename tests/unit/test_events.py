@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 import pytest
 from structlog.testing import capture_logs
@@ -8,9 +9,9 @@ from app.domain.entities import MenuItem, Order, OrderStatus, Role, User
 from app.domain.events import DELIVERY_FAILED, ORDER_CANCELLED, ORDER_PAID, DeliveryFailed, OrderCancelled, OrderPaid
 from app.memory_storage import InMemoryStorage
 from app.modules.orders.exceptions import AccessDeniedError, OrderCannotBePaidError
-from app.modules.orders.repository import InMemoryOrderRepository, SqlAlchemyOrderRepository
+from app.modules.orders.repository import InMemoryOrderRepository
 from app.modules.orders.service import OrderService
-from app.workers import kitchen_consumer, order_saga_consumer
+from app.workers import kitchen_consumer, loyalty_consumer, order_saga_consumer, promo_consumer
 from app.workers.outbox_relay import publish_pending
 from delivery_service import worker as delivery_worker
 
@@ -211,3 +212,43 @@ def test_outbox_relay_publishes_and_marks_events(sqlite_session):
 
     assert exchange.published == [(ORDER_PAID, event.event_id)]
     assert outbox(sqlite_session)[0].published_at is not None
+
+
+def add_promo_usage(db, order: models.Order) -> models.PromoCode:
+    now = datetime.utcnow()
+    promo = models.PromoCode(code="STUDENT10", discount_type="percent", discount_value=10, valid_from=now,
+                             valid_until=now, max_uses=1, current_uses=1, min_order_amount=0, is_active=True)
+    db.add(promo)
+    db.flush()
+    db.add(models.PromoCodeUsage(promo_code_id=promo.id, user_id=order.user_id, order_id=order.id, discount=25))
+    db.commit()
+    return promo
+
+
+def test_loyalty_earns_on_paid_and_compensates_on_cancelled_once(sqlite_session):
+    student = add_user(sqlite_session, Role.STUDENT)
+    order = add_paid_order(sqlite_session, student, total=1000)
+    paid = OrderPaid(order_id=order.id, user_id=student.id, amount=1000).payload()
+    cancelled = OrderCancelled(order_id=order.id, refund=1000, reason="Нет свободного курьера").payload()
+
+    loyalty_consumer.handle(sqlite_session, ORDER_PAID, paid)
+    loyalty_consumer.handle(sqlite_session, ORDER_PAID, paid)
+    loyalty_consumer.handle(sqlite_session, ORDER_CANCELLED, cancelled)
+    loyalty_consumer.handle(sqlite_session, ORDER_CANCELLED, OrderCancelled(order_id=order.id, refund=1000, reason="повтор").payload())
+
+    types = [t.type for t in sqlite_session.query(models.LoyaltyTransaction).order_by(models.LoyaltyTransaction.id)]
+    assert types == ["earn", "revoke"]
+    assert sqlite_session.query(models.LoyaltyAccount).one().balance == 0
+
+
+def test_promo_is_restored_once_after_cancellation(sqlite_session):
+    order = add_paid_order(sqlite_session, add_user(sqlite_session, Role.STUDENT))
+    promo = add_promo_usage(sqlite_session, order)
+    cancelled = OrderCancelled(order_id=order.id, refund=225, reason="тест").payload()
+
+    promo_consumer.handle(sqlite_session, ORDER_CANCELLED, cancelled)
+    promo_consumer.handle(sqlite_session, ORDER_CANCELLED, OrderCancelled(order_id=order.id, refund=225, reason="повтор").payload())
+
+    sqlite_session.refresh(promo)
+    assert promo.current_uses == 0
+    assert sqlite_session.query(models.PromoCodeUsage).count() == 0

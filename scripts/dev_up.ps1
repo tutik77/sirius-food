@@ -17,6 +17,8 @@ $processes = @{
     delivery_worker = @("-m", "delivery_service.worker")
     kitchen         = @("-m", "app.workers.kitchen_consumer")
     saga            = @("-m", "app.workers.order_saga_consumer")
+    loyalty         = @("-m", "app.workers.loyalty_consumer")
+    promo           = @("-m", "app.workers.promo_consumer")
     outbox          = @("-m", "app.workers.outbox_relay")
     api             = @("-m", "uvicorn", "app.main:app", "--port", "8000")
     worker          = @("-m", "celery", "-A", "app.core.celery_app", "worker", "-Q", "default", "--pool=threads", "--concurrency=4", "--loglevel=info")

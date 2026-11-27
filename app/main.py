@@ -14,10 +14,13 @@ from app.core.config import settings
 from app.core.correlation import HEADER, correlation_id_middleware
 from app.core.logging import setup_logging
 from app.core.tracing import setup_tracing
+from app.modules.assistant.router import router as assistant_router
 from app.modules.auth.router import router as auth_router
 from app.modules.delivery.router import router as delivery_router
+from app.modules.loyalty.router import router as loyalty_router
 from app.modules.menu.router import router as menu_router
 from app.modules.orders.router import router as orders_router
+from app.modules.promo.router import router as promo_router
 from app.modules.users.router import router as users_router
 
 setup_logging("api")
@@ -60,6 +63,9 @@ app.include_router(users_router, prefix="/users", tags=["users"])
 app.include_router(menu_router, prefix="/menu", tags=["menu"])
 app.include_router(orders_router, prefix="/orders", tags=["orders"])
 app.include_router(delivery_router, prefix="/delivery", tags=["delivery"])
+app.include_router(promo_router, prefix="/promo-codes", tags=["promo"])
+app.include_router(loyalty_router, prefix="/loyalty", tags=["loyalty"])
+app.include_router(assistant_router, prefix="/assistant", tags=["assistant"])
 
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
 FastAPIInstrumentor.instrument_app(app)

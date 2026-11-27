@@ -1,9 +1,3 @@
-"""
-Транспортный слой модуля заказов (круг Frameworks & Drivers).
-
-Принимает HTTP-запрос, проверяет токен и роль, делает техническую валидацию,
-вызывает сервис и переводит доменные исключения в HTTP-статусы.
-"""
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.container import get_order_service
@@ -12,7 +6,7 @@ from app.domain.entities import Role, User
 from app.domain.errors import DomainError
 from app.http_errors import to_http
 from app.modules.orders.service import OrderService
-from app.schemas import OrderCreate, OrderResponse
+from app.schemas import OrderCreate, OrderPay, OrderResponse
 
 router = APIRouter()
 
@@ -23,7 +17,6 @@ def create_order(
     current_user: User = Depends(require_role(Role.STUDENT)),
     service: OrderService = Depends(get_order_service),
 ):
-    # Техническая валидация уровня транспортного протокола.
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Количество должно быть больше нуля")
 
@@ -32,11 +25,12 @@ def create_order(
             user_id=current_user.id,
             item_id=payload.item_id,
             quantity=payload.quantity,
+            promo_code=payload.promo_code,
         )
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
-    return {"status": "success", "order_id": order.id}
+    return {"status": "success", "order_id": order.id, "total_cost": order.total_cost, "discount": order.discount}
 
 
 @router.get("/my", response_model=list[OrderResponse])
@@ -56,7 +50,7 @@ def cancel_order(
     try:
         service.cancel_order(order_id, current_user)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success"}
 
@@ -64,15 +58,17 @@ def cancel_order(
 @router.post("/{order_id}/pay")
 def pay_order(
     order_id: int,
+    payload: OrderPay | None = None,
     current_user: User = Depends(require_role(Role.STUDENT)),
     service: OrderService = Depends(get_order_service),
 ):
+    points = payload.points if payload else 0
     try:
-        order = service.pay_order(order_id, current_user)
+        order = service.pay_order(order_id, current_user, points)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
-    return {"status": "success", "order_status": order.status}
+    return {"status": "success", "order_status": order.status, "points_spent": order.points_spent}
 
 
 @router.get("/kitchen/orders", response_model=list[OrderResponse])

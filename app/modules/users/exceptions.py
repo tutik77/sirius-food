@@ -1,6 +1,3 @@
-"""
-Доменные исключения модуля пользователей.
-"""
 from app.domain.errors import BusinessRuleError, ForbiddenError, NotFoundError
 
 

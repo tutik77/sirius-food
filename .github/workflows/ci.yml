@@ -16,6 +16,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - run: ruff check .
       - run: pytest -v --ignore=tests/integration --cov=app --cov=delivery_service --cov-report=term
 
   integration:

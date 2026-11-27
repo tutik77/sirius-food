@@ -1,8 +1,3 @@
-"""
-Транспортный слой модуля меню (круг Frameworks & Drivers).
-
-Смотреть меню может кто угодно, менять — только повар или администратор.
-"""
 from fastapi import APIRouter, Depends
 
 from app.container import get_menu_service
@@ -28,7 +23,7 @@ def get_menu_item(item_id: int, service: MenuService = Depends(get_menu_service)
     try:
         return service.get_item(item_id)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
 
 @router.post("/items")
@@ -40,7 +35,7 @@ def create_menu_item(
     try:
         item = service.create_item(name=payload.name, price=payload.price)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "item_id": item.id}
 
@@ -60,6 +55,6 @@ def update_menu_item(
             is_available=payload.is_available,
         )
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "item_id": item.id}

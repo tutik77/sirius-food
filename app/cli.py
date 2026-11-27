@@ -1,14 +1,3 @@
-"""
-Консольные команды администратора.
-
-Пример: первый администратор (через API его создать нельзя — регистрация
-всегда выдаёт роль student, а назначать роли может только admin):
-
-    python -m app.cli create-user admin@sirius.ru 'StrongPassword1' --role admin
-
-Команда использует тот же UserService, что и API: бизнес-логика
-не привязана к HTTP и переиспользуется из любого входа.
-"""
 import argparse
 import getpass
 
@@ -26,7 +15,7 @@ def create_user(email: str, password: str | None, role: str) -> None:
         try:
             user = service.register(email=email, password=password, role=role)
         except DomainError as e:
-            raise SystemExit(f"Ошибка: {e.message}")
+            raise SystemExit(f"Ошибка: {e.message}") from e
     print(f"Создан пользователь id={user.id} email={user.email} роль={user.role}")
 
 

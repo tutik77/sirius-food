@@ -1,12 +1,3 @@
-"""
-Демонстрация кеша меню для защиты ЛР № 4 (сервер и Redis должны быть запущены).
-
-    python scripts/demo_cache.py --admin-email admin@sirius.ru --admin-password AdminPass123
-
-1. Сброс ключа menu:all, первый GET /menu/items — miss (идёт в PostgreSQL).
-2. Второй GET — hit (из Redis), видно TTL ключа.
-3. POST /menu/items — событийная инвалидация: ключ удалён, новое блюдо сразу в меню.
-"""
 import argparse
 import time
 import uuid

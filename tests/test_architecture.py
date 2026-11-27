@@ -1,6 +1,3 @@
-"""
-Архитектурные тесты: правило зависимостей Clean Architecture.
-"""
 import ast
 from pathlib import Path
 
@@ -28,7 +25,7 @@ ROOT = APP.parent
 
 
 def test_all_modules_have_three_layers():
-    for module in ("auth", "users", "menu", "orders"):
+    for module in ("auth", "users", "menu", "orders", "promo", "loyalty"):
         for layer in ("router.py", "service.py", "repository.py"):
             assert (APP / "modules" / module / layer).exists(), f"{module}/{layer}"
 

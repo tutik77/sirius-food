@@ -1,9 +1,3 @@
-"""
-Тесты безопасности на уровне HTTP API.
-
-Приложение работает на in-memory хранилище, Redis для rate limiting
-подменён на fakeredis — внешние сервисы не нужны, тесты идут в CI.
-"""
 from datetime import UTC, datetime, timedelta
 
 import fakeredis
@@ -77,9 +71,6 @@ def place_order(client, user, item, quantity=1) -> int:
     return r.json()["order_id"]
 
 
-# ---------- 401: аутентификация ----------
-
-
 @pytest.mark.parametrize(
     "method, url",
     [
@@ -124,9 +115,6 @@ def test_blocked_user_token_returns_403(client, make_user):
     assert client.get("/users/me", headers=auth(blocked)).status_code == 403
 
 
-# ---------- user_id из токена, а не из тела запроса ----------
-
-
 def test_order_is_created_for_token_owner_not_payload_user(client, storage, make_user, borsch):
     attacker = make_user(balance=1000)
     victim = make_user(balance=1000)
@@ -142,9 +130,6 @@ def test_order_is_created_for_token_owner_not_payload_user(client, storage, make
     assert order.user_id == attacker.id
     assert storage.users[victim.id].balance == 1000
     assert storage.users[attacker.id].balance == 750
-
-
-# ---------- 403: роль ----------
 
 
 @pytest.mark.parametrize(
@@ -168,9 +153,6 @@ def test_role_based_access(client, make_user, borsch, method, url, body, allowed
     assert r_denied.status_code == 403
     assert r_denied.json() == {"detail": "Доступ запрещён"}
     assert r_allowed.status_code == 200, r_allowed.text
-
-
-# ---------- 403: чужой объект (IDOR) ----------
 
 
 def test_student_cannot_cancel_foreign_order(client, storage, make_user, borsch):
@@ -231,14 +213,10 @@ def test_delivery_access_is_checked_per_object(client, storage, make_user, borsc
     assert storage.orders[order.id].status == OrderStatus.DELIVERED
 
 
-# ---------- аутентификация и токены ----------
-
-
 def test_register_login_and_me(client):
     r = client.post("/users/register", json={"email": "anna@sirius.ru", "password": PASSWORD})
     assert r.json() == {"status": "success", "user_id": 1, "email": "anna@sirius.ru"}
 
-    # Форма OAuth2 — так логинится кнопка Authorize в Swagger.
     r = client.post("/auth/token", data={"username": "anna@sirius.ru", "password": PASSWORD})
     assert r.status_code == 200
     token = r.json()["access_token"]
@@ -280,7 +258,6 @@ def test_refresh_rotation_and_reuse_detection(client, make_user):
     reused = client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]})
     assert reused.status_code == 401
 
-    # После обнаружения повторного использования отозвана вся сессия.
     after_reset = client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]})
     assert after_reset.status_code == 401
 
@@ -299,9 +276,6 @@ def test_blocked_user_cannot_login(client, make_user):
     r = client.post("/auth/login", json={"email": "blocked@sirius.ru", "password": PASSWORD})
 
     assert r.status_code == 403
-
-
-# ---------- 429: rate limiting ----------
 
 
 def test_login_rate_limit(client, make_user):
@@ -323,9 +297,6 @@ def test_rate_limit_blocks_even_correct_password(client, make_user):
 
     assert r.status_code == 429
     assert r.headers["Retry-After"] == "60"
-
-
-# ---------- Secure by Default ----------
 
 
 def test_swagger_and_openapi_disabled_in_production(client):

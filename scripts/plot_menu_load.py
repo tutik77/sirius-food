@@ -1,9 +1,3 @@
-"""
-Графики «до/после» кеша для README ЛР № 4 по CSV Locust из docs/pr4/.
-
-    pip install matplotlib
-    python scripts/plot_menu_load.py
-"""
 import csv
 from pathlib import Path
 
@@ -13,7 +7,6 @@ DIR = Path(__file__).resolve().parent.parent / "docs" / "pr4"
 
 
 def history(label: str) -> tuple[list[int], list[float], list[float]]:
-    """Секунды от старта, RPS и 95-й перцентиль (мс) по строке Aggregated."""
     with open(DIR / f"{label}_stats_history.csv", newline="") as f:
         rows = [r for r in csv.DictReader(f) if r and r["Name"] == "Aggregated"]
     t0 = int(rows[0]["Timestamp"])
