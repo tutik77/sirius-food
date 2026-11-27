@@ -1,9 +1,3 @@
-"""
-Инфраструктурный слой модуля аутентификации (круг Interface Adapters).
-
-AuthRepository — абстрактный интерфейс, от которого зависит сервис.
-Реализации: SqlAlchemyAuthRepository (PostgreSQL) и InMemoryAuthRepository.
-"""
 from abc import ABC, abstractmethod
 from dataclasses import replace
 
@@ -17,40 +11,32 @@ from app.memory_storage import InMemoryStorage, copy
 
 
 class AuthRepository(ABC):
-    """Пользователи для входа и выданные refresh-токены."""
-
     @abstractmethod
     def get_user_by_email(self, email: str) -> User | None:
-        """Пользователь по email или None."""
+        ...
 
     @abstractmethod
     def get_user_by_id(self, user_id: int) -> User | None:
-        """Пользователь по идентификатору или None."""
+        ...
 
     @abstractmethod
     def add_refresh_token(self, token: RefreshToken) -> None:
-        """Сохраняет запись о выданном refresh-токене."""
+        ...
 
     @abstractmethod
     def get_refresh_token(self, token_hash: str) -> RefreshToken | None:
-        """Запись о refresh-токене по его хешу или None."""
+        ...
 
     @abstractmethod
     def revoke_if_active(self, token_hash: str) -> bool:
-        """
-        Атомарно отзывает токен, если он ещё не отозван.
-        Возвращает False, если токен уже был отозван: так два параллельных
-        запроса с одним токеном не смогут оба получить новую пару.
-        """
+        ...
 
     @abstractmethod
     def revoke_all_for_user(self, user_id: int) -> None:
-        """Отзывает все refresh-токены пользователя (завершает все сессии)."""
+        ...
 
 
 class SqlAlchemyAuthRepository(AuthRepository):
-    """Реализация репозитория аутентификации на SQLAlchemy ORM."""
-
     def __init__(self, db: Session):
         self.db = db
 
@@ -82,7 +68,6 @@ class SqlAlchemyAuthRepository(AuthRepository):
         return to_refresh_token(row) if row else None
 
     def revoke_if_active(self, token_hash: str) -> bool:
-        # UPDATE ... WHERE is_revoked = false: проверка и изменение одной операцией.
         result = self.db.execute(
             update(models.RefreshToken)
             .where(
@@ -104,8 +89,6 @@ class SqlAlchemyAuthRepository(AuthRepository):
 
 
 class InMemoryAuthRepository(AuthRepository):
-    """Реализация репозитория аутентификации в памяти процесса."""
-
     def __init__(self, storage: InMemoryStorage):
         self.storage = storage
 

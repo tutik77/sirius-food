@@ -1,6 +1,3 @@
-"""
-Доменные исключения модуля меню.
-"""
 from app.domain.errors import BusinessRuleError, NotFoundError
 
 

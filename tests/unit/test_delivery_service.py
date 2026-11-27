@@ -1,6 +1,3 @@
-"""
-Unit-тесты DeliveryService без СУБД.
-"""
 import pytest
 
 from app.domain.entities import Delivery, DeliveryStatus, MenuItem, Order, OrderStatus, Role
@@ -98,7 +95,6 @@ def test_complete_delivery_marks_order_delivered(service, repos, make_order, cou
 
 
 def test_foreign_courier_cannot_complete_delivery(service, repos, make_order, make_user, courier):
-    """IDOR: другой курьер подставляет id чужой доставки."""
     delivery = service.assign_courier(make_order().id, courier.id)
 
     with pytest.raises(DeliveryAccessDeniedError):

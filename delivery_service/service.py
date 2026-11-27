@@ -1,6 +1,3 @@
-"""
-Слой бизнес-логики модуля доставки (круги Entities и Use Cases).
-"""
 from app.domain.entities import Delivery, DeliveryStatus, OrderStatus, Role, User
 from delivery_service.exceptions import (
     CourierBlockedError,
@@ -19,16 +16,10 @@ from delivery_service.repository import DeliveryRepository
 
 
 class DeliveryService:
-    """Бизнес-правила назначения курьеров и завершения доставок."""
-
     def __init__(self, repository: DeliveryRepository):
         self.repository = repository
 
     def assign_courier(self, order_id: int, courier_id: int) -> Delivery:
-        """
-        Назначает курьера на заказ. Заказ должен быть оплачен; курьер — существовать,
-        иметь роль courier, не быть заблокированным и не иметь активной доставки.
-        """
         order = self.repository.get_order(order_id)
         if order is None:
             raise OrderNotFoundError()
@@ -61,10 +52,6 @@ class DeliveryService:
         return self.assign_courier(order_id, courier.id)
 
     def get_delivery(self, delivery_id: int, current_user: User) -> Delivery:
-        """
-        Доставку видят только назначенный курьер, студент, чей это заказ,
-        и администратор. Остальным — отказ (защита от IDOR).
-        """
         delivery = self.repository.get_delivery(delivery_id)
         if delivery is None:
             raise DeliveryNotFoundError()
@@ -77,14 +64,9 @@ class DeliveryService:
         return delivery
 
     def list_courier_deliveries(self, courier: User) -> list[Delivery]:
-        """Курьер видит только свои доставки."""
         return self.repository.list_by_courier(courier.id)
 
     def complete_delivery(self, delivery_id: int, current_user: User) -> Delivery:
-        """
-        Завершает доставку и переводит заказ в статус delivered.
-        Завершить может только назначенный курьер или администратор.
-        """
         delivery = self.repository.get_delivery(delivery_id)
         if delivery is None:
             raise DeliveryNotFoundError()

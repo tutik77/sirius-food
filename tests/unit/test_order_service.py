@@ -1,6 +1,3 @@
-"""
-Unit-тесты OrderService без СУБД.
-"""
 import pytest
 from structlog.testing import capture_logs
 
@@ -92,7 +89,6 @@ def test_cancel_own_order_refunds_money(service, repos, student, borsch):
 
 
 def test_cancel_foreign_order_is_forbidden(service, repos, make_user, student, borsch):
-    """IDOR: студент Б подставляет id заказа студента А."""
     order = service.create_order(student.id, borsch.id, quantity=1)
     attacker = make_user()
 
