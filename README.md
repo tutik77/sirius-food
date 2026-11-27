@@ -6,6 +6,7 @@
 - **ЛР № 2.** Рефакторинг MVP-модулей в Clean Architecture — [раздел ниже](#лр--2-clean-architecture), тег `pr2`.
 - **ЛР № 3.** Аутентификация и авторизация: JWT, RBAC, защита от IDOR — [раздел ниже](#лр--3-безопасность-jwt-rbac-idor), тег `pr3`.
 - **ЛР № 4.** Кеширование: Cache-Aside на Redis — [раздел ниже](#лр--4-кеширование-cache-aside-на-redis), тег `pr4`.
+- **ЛР № 5.** Фоновые задачи: Celery, ретраи, DLQ, Flower, Beat — [раздел ниже](#лр--5-фоновые-задачи-celery), тег `pr5`.
 
 ## Запуск
 
@@ -375,3 +376,81 @@ docker compose exec redis redis-cli ttl menu:all
 10 параллельных запросов при пустом кеше дают один запрос в БД.
 
 Ответы на контрольные вопросы: [docs/pr4-answers.md](docs/pr4-answers.md).
+
+---
+
+## ЛР № 5. Фоновые задачи: Celery
+
+### Что сделано
+
+- `app/core/celery_app.py` — Celery с Redis в роли брокера и backend, JSON-сериализация,
+  очереди `default` и `dlq`, расписание Celery Beat.
+- `app/tasks/orders.py` — `generate_order_pdf` (2 с), `send_order_email` (1 с), `send_order_sms` (1 с).
+- `OrderService.create_order` после сохранения заказа ставит задачи через `.delay()`
+  (`_schedule_order_notifications`). Роутер и репозиторий о Celery не знают.
+- **Ретраи** (`app/tasks/reliability.py`, `ReliableTask`): на любое исключение до 3 повторов
+  с экспоненциальной задержкой 1 → 2 → 4 с. Email падает для каждого заказа с `order_id`, кратным 5.
+- **DLQ**: когда ретраи исчерпаны, `ReliableTask.on_failure` кладёт задачу с теми же аргументами в очередь `dlq`.
+  Воркер слушает только `default`, поэтому задачи в `dlq` лежат до ручного разбора.
+- **Идемпотентность**: перед работой задача проверяет ключ `pdf_generated:{id}`, `email_sent:{id}` или
+  `sms_sent:{id}` в Redis и ставит его после успеха (TTL 1 час). Повтор не создаёт дубль чека или письма.
+- **Flower** (9 баллов): мониторинг задач в реальном времени на `:5555`.
+- **Celery Beat** (10 баллов): раз в минуту `update_daily_order_stats` считает заказы за сегодня
+  и пишет в Redis `stats:orders:daily`. Для подсчёта у заказа появилось поле `created_at` (миграция `fff4982f921f`).
+
+### Замеры
+
+`python scripts/measure_order_create.py before|after`: 20 последовательных `POST /orders/create`
+после одного прогревочного запроса.
+
+| Метрика | До (PDF, email, SMS синхронно) | После (Celery) |
+|---|---|---|
+| Среднее | 4 024 мс | 59 мс |
+| Медиана | 4 022 мс | 63 мс |
+| 95-й перцентиль | 4 034 мс | 76 мс |
+| Максимум | 4 068 мс | 114 мс |
+
+Ответ ускорился в 68 раз: клиент больше не ждёт 4 секунды заглушек, воркер выполняет их после ответа.
+
+![До и после Celery](docs/pr5/before_after.png)
+
+### Flower
+
+Задачи в реальном времени: PDF, email и SMS каждого заказа, повтор PDF выполнен за 0 мс (уже был сгенерирован),
+email для заказа 90 — FAILURE после ретраев:
+
+![Flower: задачи](docs/pr5/flower_tasks.png)
+
+Карточка упавшей задачи (аргументы, время ретраев) и очереди брокера (6 задач в `dlq`):
+
+![Flower: упавшая задача](docs/pr5/flower_failed_task.png)
+![Flower: очереди](docs/pr5/flower_broker.png)
+
+### Запуск
+
+```bash
+docker compose up -d db redis
+alembic upgrade head
+uvicorn app.main:app
+celery -A app.core.celery_app worker -Q default --loglevel=info     # Windows: + --pool=threads
+celery -A app.core.celery_app beat --loglevel=info
+celery -A app.core.celery_app flower                                # http://localhost:5555
+```
+
+На Windows всё поднимает `scripts/dev_up.ps1` (логи в `logs/`).
+
+### Проверка на сдаче
+
+`python -m scripts.demo_tasks`:
+
+1. Заказ создаётся за десятки миллисекунд, в логе воркера три задачи.
+2. Повторная постановка `generate_order_pdf` для того же заказа — `PDF already generated`.
+3. Заказ с `order_id`, кратным 5: `send_order_email` — `Retry in 1s`, `2s`, `4s`, затем запись о DLQ.
+   Очередь: `redis-cli lrange dlq 0 -1`.
+4. Статистика Beat: `redis-cli hgetall stats:orders:daily`.
+
+Тесты `tests/unit/test_order_tasks.py`: сервис ставит три задачи (без телефона — без SMS),
+идемпотентность PDF и email, падение email на заказе 5, политика ретраев, отправка в DLQ, подсчёт заказов за день.
+В тестах `.delay` подменён фикстурой `scheduled_tasks`, брокер не нужен.
+
+Ответы на контрольные вопросы: [docs/pr5-answers.md](docs/pr5-answers.md).
