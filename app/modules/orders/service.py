@@ -7,12 +7,14 @@
 from datetime import date, datetime, time, timedelta
 
 from app.domain.entities import Order, OrderStatus, User
+from app.domain.events import OrderCancelled, OrderPaid
 from app.modules.orders.exceptions import (
     AccessDeniedError,
     InsufficientFundsError,
     MenuItemNotFoundError,
     MenuItemUnavailableError,
     OrderCannotBeCancelledError,
+    OrderCannotBePaidError,
     OrderNotFoundError,
     UserNotFoundError,
 )
@@ -84,6 +86,33 @@ class OrderService:
         payer.balance += order.total_cost or 0.0
         order.status = OrderStatus.CANCELLED
         self.repository.save_cancellation(order, payer)
+        return order
+
+    def pay_order(self, order_id: int, current_user: User) -> Order:
+        order = self.repository.get_order(order_id)
+        if order is None:
+            raise OrderNotFoundError()
+        if not order.belongs_to(current_user):
+            raise AccessDeniedError()
+        if order.status != OrderStatus.PROCESSING:
+            raise OrderCannotBePaidError()
+
+        order.status = OrderStatus.PAID
+        event = OrderPaid(order_id=order.id, user_id=order.user_id, amount=order.total_cost or 0.0)
+        self.repository.save_payment(order, event)
+        return order
+
+    def compensate_failed_delivery(self, order_id: int, reason: str) -> Order | None:
+        order = self.repository.get_order(order_id)
+        if order is None or order.status != OrderStatus.PAID:
+            return None
+
+        refund = order.total_cost or 0.0
+        payer = self.repository.get_user_by_id(order.user_id)
+        payer.balance += refund
+        order.status = OrderStatus.CANCELLED
+        event = OrderCancelled(order_id=order.id, refund=refund, reason=reason)
+        self.repository.save_compensation(order, payer, event)
         return order
 
     def list_user_orders(self, current_user: User) -> list[Order]:

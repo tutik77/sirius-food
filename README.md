@@ -8,6 +8,7 @@
 - **ЛР № 4.** Кеширование: Cache-Aside на Redis — [раздел ниже](#лр--4-кеширование-cache-aside-на-redis), тег `pr4`.
 - **ЛР № 5.** Фоновые задачи: Celery, ретраи, DLQ, Flower, Beat — [раздел ниже](#лр--5-фоновые-задачи-celery), тег `pr5`.
 - **ЛР № 6.** Strangler Fig: delivery в gRPC-микросервис, стриминг — [раздел ниже](#лр--6-strangler-fig-delivery-в-grpc-микросервис), тег `pr6`.
+- **ЛР № 7.** Event-driven: RabbitMQ, Saga, Transactional Outbox, DLQ — [раздел ниже](#лр--7-event-driven-rabbitmq-saga-transactional-outbox), тег `pr7`.
 
 ## Запуск
 
@@ -539,3 +540,78 @@ delivery_service CompleteDelivery delivery=1 actor=7
 теперь идут через настоящий gRPC-сервер, который фикстура `delivery_grpc_server` поднимает в тестовом процессе.
 
 Ответы на контрольные вопросы: [docs/pr6-answers.md](docs/pr6-answers.md).
+
+---
+
+## ЛР № 7. Event-driven: RabbitMQ, Saga, Transactional Outbox
+
+### Что сделано
+
+- RabbitMQ в `docker-compose.yml` (`sirius_rabbitmq`, UI http://localhost:15672, sirius/sirius).
+- `app/domain/events.py` — события `OrderPaid` (`order.paid`), `OrderCancelled` (`order.cancelled`),
+  `DeliveryFailed` (`delivery.failed`), у каждого `event_id`.
+- `POST /orders/{order_id}/pay` → `OrderService.pay_order`: статус `paid` и событие `OrderPaid`.
+- **Transactional Outbox** (10 баллов): сервис не ходит в RabbitMQ. Репозиторий пишет новый статус заказа и
+  событие в таблицу `outbox_events` одной транзакцией (`save_payment`). `app/workers/outbox_relay.py`
+  раз в секунду публикует неопубликованные события в topic exchange `sirius_events` и ставит `published_at`.
+  RabbitMQ лежит — оплата проходит, событие ждёт в outbox и уходит, когда брокер поднимется.
+- Consumer'ы (`app/messaging/rabbitmq.py` → `consume`), каждый со своей очередью:
+  - `app/workers/kitchen_consumer.py` — `kitchen_queue` ← `order.paid` (заказ в `kitchen_orders`),
+    `order.cancelled` (заказ кухни отменяется);
+  - `delivery_service/worker.py` — `delivery_queue` ← `order.paid`: назначает свободного курьера
+    (`DeliveryService.assign_free_courier`), если курьера нет — пишет в outbox `delivery.failed`;
+  - `app/workers/order_saga_consumer.py` — `orders_queue` ← `delivery.failed`: компенсация.
+- **Идемпотентность**: перед обработкой consumer записывает пару (consumer, event_id) в `processed_events`
+  в той же транзакции, что и свои изменения (`app/messaging/idempotency.py`). Повтор события пропускается.
+- **DLQ**: у каждой очереди `x-dead-letter-exchange = dlx_exchange`. Если обработка упала (битый JSON, ошибка),
+  сообщение отклоняется без возврата в очередь и попадает в `kitchen_dlq` / `delivery_dlq` / `orders_dlq`.
+- **Saga, хореография** (9 баллов): нет курьера → `delivery.failed` → `OrderService.compensate_failed_delivery`
+  возвращает деньги, отменяет заказ и публикует `order.cancelled` → кухня снимает заказ.
+  Компенсация идемпотентна дважды: по `event_id` и по статусу (возврат только из `paid`).
+
+### Архитектура
+
+```mermaid
+flowchart LR
+    API[Монолит<br/>POST /orders/id/pay] -- одна транзакция --> DB[(orders + outbox_events)]
+    DB --> RELAY[outbox_relay]
+    RELAY -- order.paid / order.cancelled / delivery.failed --> EX{{exchange sirius_events<br/>topic}}
+    EX -- order.paid, order.cancelled --> KQ[kitchen_queue] --> K[kitchen_consumer]
+    EX -- order.paid --> DQ[delivery_queue] --> D[delivery_service.worker]
+    EX -- delivery.failed --> OQ[orders_queue] --> S[order_saga_consumer]
+    D -- нет курьера: delivery.failed в outbox --> DB
+    S -- возврат денег, cancelled, order.cancelled в outbox --> DB
+    KQ & DQ & OQ -. ошибка обработки .-> DLX{{dlx_exchange}} --> DLQ[kitchen_dlq, delivery_dlq, orders_dlq]
+```
+
+### Запуск и проверка
+
+```bash
+docker compose up -d db redis rabbitmq
+alembic upgrade head
+uvicorn app.main:app
+python -m app.workers.outbox_relay
+python -m app.workers.kitchen_consumer
+python -m app.workers.order_saga_consumer
+python -m delivery_service.worker
+python -m delivery_service.server
+python -m scripts.demo_events --outbox
+```
+
+Вывод демонстрации:
+
+```
+1) Заказ 94 оплачен: кухня [('pending',)], доставка — курьер [(7,)]
+2) Saga: курьер занят -> delivery.failed -> заказ 95 cancelled, кухня отменила заказ,
+   баланс после списания 227000.0 -> после возврата 227250.0
+3) Повтор события 1f27e003-…: записей кухни для заказа 94 = 1
+4) Битое сообщение: kitchen_dlq 1 -> 2, delivery_dlq 1 -> 2
+5) RabbitMQ остановлен, заказ 96 оплачен, неопубликованных событий в outbox: 1
+   RabbitMQ запущен: order.paid заказа 96 опубликован, кухня получила заказ
+```
+
+Тесты `tests/unit/test_events.py`: `pay_order` пишет `OrderPaid` в outbox, правила оплаты, компенсация один раз;
+кухня принимает заказ один раз и отменяет его; доставка назначает свободного курьера или пишет `delivery.failed`;
+Saga отменяет заказ и возвращает деньги ровно один раз; relay публикует и помечает события.
+
+Ответы на контрольные вопросы: [docs/pr7-answers.md](docs/pr7-answers.md).

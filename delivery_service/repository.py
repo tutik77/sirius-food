@@ -10,7 +10,7 @@ from dataclasses import replace
 from sqlalchemy.orm import Session
 
 from app import models
-from app.domain.entities import Delivery, DeliveryStatus, Order, User
+from app.domain.entities import Delivery, DeliveryStatus, Order, Role, User
 from app.mappers import to_delivery, to_order, to_user
 from app.memory_storage import InMemoryStorage, copy
 
@@ -33,6 +33,9 @@ class DeliveryRepository(ABC):
     @abstractmethod
     def find_active_by_courier(self, courier_id: int) -> Delivery | None:
         """Доставка курьера в статусе in_progress или None."""
+
+    @abstractmethod
+    def find_free_courier(self) -> User | None: ...
 
     @abstractmethod
     def list_by_courier(self, courier_id: int) -> list[Delivery]:
@@ -75,6 +78,24 @@ class SqlAlchemyDeliveryRepository(DeliveryRepository):
             .first()
         )
         return to_delivery(row) if row else None
+
+    def find_free_courier(self) -> User | None:
+        busy = self.db.query(models.Delivery.courier_id).filter(
+            models.Delivery.status == DeliveryStatus.IN_PROGRESS,
+            models.Delivery.courier_id.is_not(None),
+        )
+        row = (
+            self.db.query(models.User)
+            .join(models.Role)
+            .filter(
+                models.Role.name == Role.COURIER,
+                models.User.is_blocked.is_(False),
+                models.User.id.not_in(busy),
+            )
+            .order_by(models.User.id)
+            .first()
+        )
+        return to_user(row) if row else None
 
     def list_by_courier(self, courier_id: int) -> list[Delivery]:
         rows = (
@@ -123,6 +144,18 @@ class InMemoryDeliveryRepository(DeliveryRepository):
                 d
                 for d in self.storage.deliveries.values()
                 if d.courier_id == courier_id and d.status == DeliveryStatus.IN_PROGRESS
+            ),
+            None,
+        )
+        return copy(found)
+
+    def find_free_courier(self) -> User | None:
+        busy = {d.courier_id for d in self.storage.deliveries.values() if d.status == DeliveryStatus.IN_PROGRESS}
+        found = next(
+            (
+                u
+                for u in sorted(self.storage.users.values(), key=lambda u: u.id)
+                if u.role == Role.COURIER and not u.is_blocked and u.id not in busy
             ),
             None,
         )

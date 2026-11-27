@@ -44,3 +44,7 @@ class DeliveryAlreadyCompletedError(BusinessRuleError):
 
 class DeliveryCancelledError(BusinessRuleError):
     message = "Отменённую доставку нельзя завершить"
+
+
+class NoFreeCourierError(BusinessRuleError):
+    message = "Нет свободного курьера"
