@@ -1,9 +1,3 @@
-"""
-Инфраструктурный слой модуля доставки (круг Interface Adapters).
-
-DeliveryRepository — абстрактный интерфейс, от которого зависит сервис.
-Реализации: SqlAlchemyDeliveryRepository (PostgreSQL) и InMemoryDeliveryRepository.
-"""
 from abc import ABC, abstractmethod
 from dataclasses import replace
 
@@ -16,43 +10,39 @@ from app.memory_storage import InMemoryStorage, copy
 
 
 class DeliveryRepository(ABC):
-    """Хранилище доставок и данные, нужные для назначения курьера."""
-
     @abstractmethod
     def get_order(self, order_id: int) -> Order | None:
-        """Заказ по идентификатору или None."""
+        ...
 
     @abstractmethod
     def get_user(self, user_id: int) -> User | None:
-        """Пользователь (курьер) по идентификатору или None."""
+        ...
 
     @abstractmethod
     def get_delivery(self, delivery_id: int) -> Delivery | None:
-        """Доставка по идентификатору или None."""
+        ...
 
     @abstractmethod
     def find_active_by_courier(self, courier_id: int) -> Delivery | None:
-        """Доставка курьера в статусе in_progress или None."""
+        ...
 
     @abstractmethod
     def find_free_courier(self) -> User | None: ...
 
     @abstractmethod
     def list_by_courier(self, courier_id: int) -> list[Delivery]:
-        """Все доставки курьера."""
+        ...
 
     @abstractmethod
     def add(self, delivery: Delivery) -> Delivery:
-        """Сохраняет новую доставку, возвращает её с идентификатором."""
+        ...
 
     @abstractmethod
     def save_completion(self, delivery: Delivery, order: Order | None) -> None:
-        """Сохраняет новые статусы доставки и заказа одной транзакцией."""
+        ...
 
 
 class SqlAlchemyDeliveryRepository(DeliveryRepository):
-    """Реализация репозитория доставки на SQLAlchemy ORM."""
-
     def __init__(self, db: Session):
         self.db = db
 
@@ -124,8 +114,6 @@ class SqlAlchemyDeliveryRepository(DeliveryRepository):
 
 
 class InMemoryDeliveryRepository(DeliveryRepository):
-    """Реализация репозитория доставки в памяти процесса."""
-
     def __init__(self, storage: InMemoryStorage):
         self.storage = storage
 

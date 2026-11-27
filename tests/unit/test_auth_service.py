@@ -1,6 +1,3 @@
-"""
-Unit-тесты AuthService без СУБД: вход, ротация refresh-токенов, выход.
-"""
 import pytest
 
 from app.core.jwt import ACCESS, decode_token
@@ -51,7 +48,6 @@ def test_wrong_password_and_unknown_email_give_same_error(service, anna):
 
 
 def test_user_without_password_cannot_login(service, repos):
-    """Пользователи, перенесённые миграцией, получили непригодный хеш '!'."""
     repos.users.add(User(id=None, email="old@sirius.ru", password_hash="!"))
 
     with pytest.raises(InvalidCredentialsError):
@@ -78,13 +74,11 @@ def test_refresh_rotates_tokens(service, repos, anna):
 
 
 def test_reused_refresh_token_revokes_whole_session(service, anna):
-    """Украденный старый refresh-токен: повторное использование сбрасывает все сессии."""
     stolen = service.login("anna@sirius.ru", PASSWORD)["refresh_token"]
     legit = service.refresh(stolen)["refresh_token"]
 
     with pytest.raises(TokenReuseError):
         service.refresh(stolen)
-    # Новый токен легитимного пользователя тоже отозван — нужно войти заново.
     with pytest.raises(TokenReuseError):
         service.refresh(legit)
 

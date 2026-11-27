@@ -1,6 +1,3 @@
-"""
-Доменные исключения модуля доставки.
-"""
 from app.domain.errors import BusinessRuleError, ForbiddenError, NotFoundError
 
 
@@ -33,8 +30,6 @@ class DeliveryNotFoundError(NotFoundError):
 
 
 class DeliveryAccessDeniedError(ForbiddenError):
-    """Пользователь не имеет прав на эту доставку (защита от IDOR)."""
-
     message = "Нет доступа к чужой доставке"
 
 

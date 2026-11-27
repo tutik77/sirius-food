@@ -6,3 +6,4 @@ locust==2.47.0
 pytest-cov==7.1.0
 testcontainers[postgres]==4.15.0
 pact-python==4.2.0
+ruff==0.17.6

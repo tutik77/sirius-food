@@ -1,6 +1,3 @@
-"""
-Трансляция доменных исключений в HTTP-ответы (транспортный слой).
-"""
 from fastapi import HTTPException
 
 from app.domain.errors import (
@@ -22,7 +19,6 @@ STATUS_BY_ERROR = {
 
 
 def to_http(error: DomainError) -> HTTPException:
-    """Возвращает HTTPException с кодом, соответствующим типу доменной ошибки."""
     for error_type, status_code in STATUS_BY_ERROR.items():
         if isinstance(error, error_type):
             headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None

@@ -1,12 +1,3 @@
-"""
-Инфраструктурный слой модуля меню (круг Interface Adapters).
-
-MenuRepository — абстрактный интерфейс, от которого зависит сервис.
-Реализации: SqlAlchemyMenuRepository (PostgreSQL + кеш Redis) и InMemoryMenuRepository.
-
-Кеш меню (ЛР № 4) живёт здесь, а не в сервисе: откуда пришли данные —
-из Redis или из PostgreSQL — деталь хранения. Сервис redis не импортирует.
-"""
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -24,47 +15,37 @@ from app.memory_storage import InMemoryStorage, copy
 logger = logging.getLogger(__name__)
 
 MENU_CACHE_KEY = "menu:all"
-MENU_CACHE_TTL = 300  # 5 минут: меню меняется редко, а устаревание ограничено сверху
+MENU_CACHE_TTL = 300
 MENU_LOCK_KEY = "lock:menu:all"
 
 
 class MenuRepository(ABC):
-    """Хранилище блюд меню."""
-
     @abstractmethod
     def get_by_id(self, item_id: int) -> MenuItem | None:
-        """Блюдо по идентификатору или None."""
+        ...
 
     @abstractmethod
     def get_by_name(self, name: str) -> MenuItem | None:
-        """Блюдо по точному названию или None."""
+        ...
 
     @abstractmethod
     def list_all(self) -> list[MenuItem]:
-        """Все блюда меню."""
+        ...
 
     @abstractmethod
     def add(self, item: MenuItem) -> MenuItem:
-        """Сохраняет новое блюдо, возвращает его с идентификатором."""
+        ...
 
     @abstractmethod
     def update(self, item: MenuItem) -> MenuItem:
-        """Сохраняет изменения существующего блюда."""
+        ...
 
     @abstractmethod
     def invalidate_cache(self) -> None:
-        """Сбрасывает кеш меню после изменения данных."""
+        ...
 
 
 class SqlAlchemyMenuRepository(MenuRepository):
-    """
-    Реализация репозитория меню на SQLAlchemy ORM.
-
-    Если передан клиент Redis, list_all работает по Cache-Aside:
-    hit — ответ из Redis, miss — запрос в PostgreSQL и запись в кеш с TTL.
-    Без Redis (cache=None) или при его недоступности данные читаются из БД.
-    """
-
     def __init__(self, db: Session, cache: Redis | None = None):
         self.db = db
         self.cache = cache
@@ -83,10 +64,8 @@ class SqlAlchemyMenuRepository(MenuRepository):
 
         cached = self._read_cache()
         if cached is not None:
-            return cached  # hit
+            return cached
 
-        # Miss. Защита от cache stampede: в БД идёт только тот, кто взял
-        # блокировку, остальные ждут её и читают уже заполненный кеш.
         try:
             with self.cache.lock(MENU_LOCK_KEY, timeout=10, blocking_timeout=5):
                 cached = self._read_cache()
@@ -96,12 +75,10 @@ class SqlAlchemyMenuRepository(MenuRepository):
                 self._write_cache(items)
                 return items
         except RedisError:
-            # Redis упал или блокировку не дождались: работаем без кеша, медленнее.
             logger.warning("Кеш меню недоступен, чтение из PostgreSQL")
             return self._load_all()
 
     def warm_up(self) -> None:
-        """Прогрев кеша при старте: первый запрос к меню уже не идёт в БД."""
         if self.cache is not None:
             self._write_cache(self._load_all())
 
@@ -111,7 +88,6 @@ class SqlAlchemyMenuRepository(MenuRepository):
         try:
             self.cache.delete(MENU_CACHE_KEY)
         except RedisError:
-            # Ключ всё равно истечёт по TTL, устаревание ограничено 5 минутами.
             logger.warning("Не удалось сбросить кеш меню, он истечёт по TTL")
 
     def _load_all(self) -> list[MenuItem]:
@@ -146,8 +122,6 @@ class SqlAlchemyMenuRepository(MenuRepository):
 
 
 class InMemoryMenuRepository(MenuRepository):
-    """Реализация репозитория меню в памяти процесса."""
-
     def __init__(self, storage: InMemoryStorage):
         self.storage = storage
 
@@ -171,4 +145,4 @@ class InMemoryMenuRepository(MenuRepository):
         return copy(item)
 
     def invalidate_cache(self) -> None:
-        """Кеша нет: данные и так в памяти процесса."""
+        ...

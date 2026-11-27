@@ -1,10 +1,3 @@
-"""
-Слой бизнес-логики модуля меню (круги Entities и Use Cases).
-
-Положительная цена и минимальная длина названия — инварианты блюда.
-Они проверяются здесь, а не в роутере, чтобы правило «цена > 0» жило
-в одном месте и для создания, и для изменения блюда.
-"""
 from app.domain.entities import MenuItem
 from app.modules.menu.exceptions import (
     DuplicateMenuItemError,
@@ -18,13 +11,10 @@ MIN_NAME_LENGTH = 2
 
 
 class MenuService:
-    """Бизнес-правила ведения меню столовой."""
-
     def __init__(self, repository: MenuRepository):
         self.repository = repository
 
     def list_items(self) -> list[MenuItem]:
-        """Меню целиком."""
         return self.repository.list_all()
 
     def get_item(self, item_id: int) -> MenuItem:
@@ -34,7 +24,6 @@ class MenuService:
         return item
 
     def create_item(self, name: str, price: float) -> MenuItem:
-        """Добавляет блюдо. Название должно быть уникальным."""
         self._check_price(price)
         if len(name) < MIN_NAME_LENGTH:
             raise MenuItemNameTooShortError()
@@ -42,7 +31,6 @@ class MenuService:
             raise DuplicateMenuItemError()
 
         saved = self.repository.add(MenuItem(id=None, name=name, price=price, is_available=True))
-        # Меню изменилось: сбрасываем кеш, чтобы новое блюдо было видно сразу.
         self.repository.invalidate_cache()
         return saved
 
@@ -53,7 +41,6 @@ class MenuService:
         price: float | None = None,
         is_available: bool | None = None,
     ) -> MenuItem:
-        """Частично изменяет блюдо: применяются только переданные поля."""
         item = self.repository.get_by_id(item_id)
         if item is None:
             raise MenuItemNotFoundError()
