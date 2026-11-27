@@ -4,10 +4,16 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.domain.events import Event
+from app.messaging.context import outgoing_headers
 
 
 def to_outbox_row(event: Event) -> models.OutboxEvent:
-    return models.OutboxEvent(id=event.event_id, routing_key=event.routing_key, payload=event.payload())
+    return models.OutboxEvent(
+        id=event.event_id,
+        routing_key=event.routing_key,
+        payload=event.payload(),
+        headers=outgoing_headers(),
+    )
 
 
 class OutboxRepository:

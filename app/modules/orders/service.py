@@ -6,6 +6,8 @@
 """
 from datetime import date, datetime, time, timedelta
 
+import structlog
+
 from app.domain.entities import Order, OrderStatus, User
 from app.domain.events import OrderCancelled, OrderPaid
 from app.modules.orders.exceptions import (
@@ -20,6 +22,8 @@ from app.modules.orders.exceptions import (
 )
 from app.modules.orders.repository import OrderRepository
 from app.tasks.orders import generate_order_pdf, send_order_email, send_order_sms
+
+logger = structlog.get_logger(__name__)
 
 
 class OrderService:
@@ -59,6 +63,7 @@ class OrderService:
             total_cost=total_cost,
         )
         saved = self.repository.save_order(order, payer=user)
+        logger.info("order_created", order_id=saved.id, user_id=user.id, total_cost=total_cost)
         self._schedule_order_notifications(saved, user)
         return saved
 
@@ -100,6 +105,7 @@ class OrderService:
         order.status = OrderStatus.PAID
         event = OrderPaid(order_id=order.id, user_id=order.user_id, amount=order.total_cost or 0.0)
         self.repository.save_payment(order, event)
+        logger.info("order_paid", order_id=order.id, user_id=order.user_id, event_id=event.event_id)
         return order
 
     def compensate_failed_delivery(self, order_id: int, reason: str) -> Order | None:

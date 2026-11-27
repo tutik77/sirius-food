@@ -1,14 +1,15 @@
 import asyncio
 import json
-import logging
 from collections.abc import Callable, Iterable
 
 import aio_pika
+import structlog
 from aio_pika import DeliveryMode, ExchangeType
 
 from app.core.config import settings
+from app.messaging.context import continue_trace
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 EXCHANGE = "sirius_events"
 DLX = "dlx_exchange"
@@ -46,11 +47,14 @@ async def declare_queue(
     return queue
 
 
-async def publish(exchange: aio_pika.abc.AbstractExchange, routing_key: str, payload: dict) -> None:
+async def publish(
+    exchange: aio_pika.abc.AbstractExchange, routing_key: str, payload: dict, headers: dict | None = None
+) -> None:
     message = aio_pika.Message(
         body=json.dumps(payload, ensure_ascii=False).encode(),
         content_type="application/json",
         message_id=payload["event_id"],
+        headers=headers or {},
         delivery_mode=DeliveryMode.PERSISTENT,
     )
     await exchange.publish(message, routing_key=routing_key)
@@ -64,12 +68,13 @@ async def consume(queue_name: str, routing_keys: Iterable[str], handler: EventHa
 
     async def on_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:
         async with message.process(requeue=False):
-            try:
-                handler(message.routing_key, json.loads(message.body))
-            except Exception:
-                logger.exception("Сообщение %s отправлено в %s", message.message_id, dlq_name(queue_name))
-                raise
+            with continue_trace(message.headers, f"{queue_name} process"):
+                try:
+                    handler(message.routing_key, json.loads(message.body))
+                except Exception:
+                    logger.exception("message_dead_lettered", message_id=message.message_id, dlq=dlq_name(queue_name))
+                    raise
 
     await queue.consume(on_message)
-    logger.info("%s ждёт событий %s", queue_name, ", ".join(routing_keys))
+    logger.info("consumer_started", queue=queue_name, routing_keys=list(routing_keys))
     await asyncio.Future()

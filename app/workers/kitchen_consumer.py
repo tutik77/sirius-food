@@ -1,16 +1,17 @@
 import asyncio
-import logging
 
+import structlog
 from sqlalchemy.orm import Session
 
 from app import models
 from app.core.logging import setup_logging
+from app.core.tracing import setup_tracing
 from app.database import SessionLocal
 from app.domain.events import ORDER_CANCELLED, ORDER_PAID
 from app.messaging.idempotency import claim_event
 from app.messaging.rabbitmq import consume
 
-logger = logging.getLogger("kitchen")
+logger = structlog.get_logger("kitchen")
 
 CONSUMER = "kitchen"
 QUEUE = "kitchen_queue"
@@ -19,17 +20,17 @@ QUEUE = "kitchen_queue"
 def handle(db: Session, routing_key: str, payload: dict) -> None:
     order_id = payload["order_id"]
     if not claim_event(db, CONSUMER, payload["event_id"]):
-        logger.info("[Kitchen] Событие %s уже обработано, пропуск", payload["event_id"])
+        logger.info("event_duplicate_skipped", event_id=payload["event_id"], order_id=order_id)
         return
 
     if routing_key == ORDER_PAID:
         db.add(models.KitchenOrder(order_id=order_id, status="pending"))
-        logger.info("[Kitchen] Принят заказ %s", order_id)
+        logger.info("kitchen_order_accepted", order_id=order_id)
     elif routing_key == ORDER_CANCELLED:
         kitchen_order = db.query(models.KitchenOrder).filter_by(order_id=order_id).first()
         if kitchen_order is not None:
             kitchen_order.status = "cancelled"
-        logger.info("[Kitchen] Заказ %s отменён: %s", order_id, payload["reason"])
+        logger.info("kitchen_order_cancelled", order_id=order_id, reason=payload["reason"])
     db.commit()
 
 
@@ -39,5 +40,6 @@ def on_event(routing_key: str, payload: dict) -> None:
 
 
 if __name__ == "__main__":
-    setup_logging()
+    setup_logging("kitchen")
+    setup_tracing("kitchen")
     asyncio.run(consume(QUEUE, [ORDER_PAID, ORDER_CANCELLED], on_event))

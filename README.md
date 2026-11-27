@@ -10,6 +10,7 @@
 - **ЛР № 6.** Strangler Fig: delivery в gRPC-микросервис, стриминг — [раздел ниже](#лр--6-strangler-fig-delivery-в-grpc-микросервис), тег `pr6`.
 - **ЛР № 7.** Event-driven: RabbitMQ, Saga, Transactional Outbox, DLQ — [раздел ниже](#лр--7-event-driven-rabbitmq-saga-transactional-outbox), тег `pr7`.
 - **ЛР № 8.** SSR-витрина на Next.js: ISR, SEO, сравнение с CSR — [раздел ниже](#лр--8-ssr-витрина-на-nextjs), тег `pr8`.
+- **ЛР № 9.** Observability: correlation ID, JSON-логи, Prometheus, Grafana, Jaeger, Sentry — [раздел ниже](#лр--9-observability-логи-метрики-трассировка), тег `pr9`.
 
 ## Запуск
 
@@ -670,3 +671,69 @@ FCP — first contentful paint, «блюда в DOM» — момент появ�
 личного кабинета и интерактивных экранов за авторизацией, где SEO не нужен.
 
 Ответы на контрольные вопросы: [docs/pr8-answers.md](docs/pr8-answers.md).
+
+---
+
+## ЛР № 9. Observability: логи, метрики, трассировка
+
+### Что сделано
+
+- **Correlation ID** (`app/core/correlation.py`): middleware берёт `X-Correlation-ID` из запроса или генерирует UUID,
+  кладёт в `request.state`, в contextvar и в ответ. Дальше ID идёт по всей цепочке: при записи события в outbox
+  он сохраняется в `outbox_events.headers`, relay кладёт его в заголовки сообщения RabbitMQ, consumer'ы
+  (`app/messaging/context.py` → `continue_trace`) восстанавливают его перед обработкой. События, которые consumer
+  сам пишет в outbox (`delivery.failed`, `order.cancelled`), наследуют тот же ID — вся Saga связана.
+- **JSON-логи в stdout** (`app/core/logging.py`, structlog): в каждой записи `timestamp`, `level`, `service`,
+  `correlation_id`, событие и поля (`order_created`, `order_paid`, `kitchen_order_accepted`, `delivery_failed`…).
+- **Prometheus**: `/metrics` с RED-метриками (`prometheus-fastapi-instrumentator`), метрики очередей RabbitMQ
+  (плагин `rabbitmq_prometheus`) и Redis (`redis_exporter`). Конфиг — `observability/prometheus/prometheus.yml`.
+- **Grafana** (http://localhost:3001, admin/admin; порт 3000 занят витриной ЛР № 8): datasource и дашборд
+  «Сириус.Еда» подключаются автоматически из `observability/grafana/` — RPS, latency p95, ошибки 5xx,
+  длина очередей RabbitMQ, cache hit rate Redis.
+- **Sentry** (9 баллов): `sentry_sdk.init` при заданном `SENTRY_DSN`, тег `correlation_id` ставит middleware,
+  при `DEBUG=True` есть `GET /debug/error` для проверочной ошибки 500.
+- **OpenTelemetry + Jaeger** (10 баллов): `app/core/tracing.py`, FastAPI инструментирован, контекст трейса
+  (`traceparent`) едет через outbox и RabbitMQ вместе с correlation ID, relay и consumer'ы продолжают тот же trace.
+- Весь стек запускается в Docker (`Dockerfile`, профиль `app` в `docker-compose.yml`): `sirius_app`, `sirius_kitchen`,
+  `sirius_delivery`, `sirius_delivery_worker`, `sirius_orders_saga`, `sirius_outbox_relay`, `sirius_celery_worker`.
+
+### Запуск
+
+```bash
+docker compose --profile app up -d --build
+# Prometheus http://localhost:9090/targets, Grafana http://localhost:3001, Jaeger http://localhost:16686
+```
+
+### Расследование заказа demo-42
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/orders/create -H "X-Correlation-ID: demo-42" -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" -d '{"item_id": 1, "quantity": 1}'          # в ответе X-Correlation-ID: demo-42
+curl -X POST http://127.0.0.1:8000/orders/98/pay -H "X-Correlation-ID: demo-42" -H "Authorization: Bearer $TOKEN"
+docker logs sirius_app | jq 'select(.correlation_id == "demo-42")'
+docker logs sirius_kitchen | jq 'select(.correlation_id == "demo-42")'
+```
+
+На Windows без jq то же делает `python -m scripts.investigate_order demo-42`. Результат (заказ 98, свободного курьера
+не было — видно и Saga):
+
+```
+sirius_app:          order_created {order_id: 98, user_id: 6, total_cost: 250.0}
+                     POST /orders/create 200
+                     order_paid {order_id: 98, event_id: a97db1a8-…}
+                     POST /orders/98/pay 200
+sirius_outbox_relay: event_published order.paid, delivery.failed, order.cancelled
+sirius_kitchen:      kitchen_order_accepted {order_id: 98}
+                     kitchen_order_cancelled {order_id: 98, reason: Нет свободного курьера}
+sirius_delivery_worker: delivery_failed {order_id: 98, reason: Нет свободного курьера}
+```
+
+Все записи с `correlation_id: demo-42`. В Grafana за эти секунды — всплеск RPS на `/orders/create`, `/orders/{order_id}/pay`.
+В Jaeger trace оплаты: 11 span'ов в 5 сервисах — `POST /orders/{order_id}/pay` → `publish order.paid` →
+`kitchen_queue process` и `delivery_queue process` → `publish delivery.failed` → `orders_queue process` →
+`publish order.cancelled` → `kitchen_queue process`. Самые долгие — обработка в consumer'ах (40–48 мс).
+
+Тесты `tests/test_observability.py`: заголовок возвращается и генерируется, correlation ID попадает в outbox,
+лог consumer'а содержит ID из заголовка сообщения, `/metrics` отдаёт RED-метрики.
+
+Ответы на контрольные вопросы: [docs/pr9-answers.md](docs/pr9-answers.md).
