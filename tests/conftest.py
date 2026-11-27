@@ -15,6 +15,7 @@ os.environ.update(
     DEBUG="False",
     ALLOWED_ORIGINS='["https://sirius-food.ru"]',
     BCRYPT_ROUNDS="4",
+    TESTCONTAINERS_RYUK_DISABLED="true",
 )
 
 from itertools import count

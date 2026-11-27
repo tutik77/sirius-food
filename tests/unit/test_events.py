@@ -1,9 +1,10 @@
 import asyncio
 
 import pytest
+from structlog.testing import capture_logs
 
 from app import models
-from app.domain.entities import MenuItem, OrderStatus, Role, User
+from app.domain.entities import MenuItem, Order, OrderStatus, Role, User
 from app.domain.events import DELIVERY_FAILED, ORDER_CANCELLED, ORDER_PAID, DeliveryFailed, OrderCancelled, OrderPaid
 from app.memory_storage import InMemoryStorage
 from app.modules.orders.exceptions import AccessDeniedError, OrderCannotBePaidError
@@ -43,6 +44,44 @@ def test_pay_order_writes_order_paid_to_outbox(storage, memory_service):
     assert (event.order_id, event.user_id, event.amount) == (order_id, student.id, 250)
 
 
+def test_pay_order_logs_event_id(storage, memory_service):
+    student, order_id = place_order(storage, memory_service)
+
+    with capture_logs() as logs:
+        memory_service.pay_order(order_id, student)
+
+    event_id = storage.outbox[-1].event_id
+    assert {"event": "order_paid", "order_id": order_id, "user_id": student.id, "event_id": event_id,
+            "log_level": "info"} in logs
+
+
+def legacy_order(storage, status: str) -> tuple[User, int]:
+    user = User(id=storage.next_id("users"), email="old@sirius.ru", balance=100)
+    storage.users[user.id] = user
+    order = Order(id=storage.next_id("orders"), user_id=user.id, item_id=1, quantity=1, status=status, total_cost=None)
+    storage.orders[order.id] = order
+    return user, order.id
+
+
+def test_legacy_order_without_total_is_paid_and_refunded_as_zero(storage, memory_service):
+    student, order_id = legacy_order(storage, OrderStatus.PROCESSING)
+
+    memory_service.pay_order(order_id, student)
+    memory_service.compensate_failed_delivery(order_id, "Нет свободного курьера")
+
+    assert storage.outbox[0].amount == 0
+    assert storage.outbox[1].refund == 0
+    assert storage.users[student.id].balance == 100
+
+
+def test_cancel_legacy_order_without_total_refunds_nothing(storage, memory_service):
+    student, order_id = legacy_order(storage, OrderStatus.PROCESSING)
+
+    memory_service.cancel_order(order_id, student)
+
+    assert storage.users[student.id].balance == 100
+
+
 def test_pay_order_rules(storage, memory_service):
     student, order_id = place_order(storage, memory_service)
     stranger = User(id=999, email="x@sirius.ru")
@@ -63,7 +102,9 @@ def test_compensation_refunds_once(storage, memory_service):
 
     assert storage.orders[order_id].status == OrderStatus.CANCELLED
     assert storage.users[student.id].balance == 1000
-    assert isinstance(storage.outbox[-1], OrderCancelled)
+    cancelled = storage.outbox[-1]
+    assert isinstance(cancelled, OrderCancelled)
+    assert (cancelled.order_id, cancelled.refund, cancelled.reason) == (order_id, 250, "Нет свободного курьера")
 
 
 def add_user(db, role: str, balance: float = 0) -> models.User:
