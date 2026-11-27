@@ -12,6 +12,8 @@
 - **ЛР № 8.** SSR-витрина на Next.js: ISR, SEO, сравнение с CSR — [раздел ниже](#лр--8-ssr-витрина-на-nextjs), тег `pr8`.
 - **ЛР № 9.** Observability: correlation ID, JSON-логи, Prometheus, Grafana, Jaeger, Sentry — [раздел ниже](#лр--9-observability-логи-метрики-трассировка), тег `pr9`.
 - **ЛР № 10.** Testcontainers, Locust, CI, Pact, mutmut — [раздел ниже](#лр--10-интеграционные-тесты-нагрузка-ci-pact-mutmut), тег `pr10`.
+- **Практика, трек A.** Промокоды и программа лояльности — [раздел ниже](#учебная-практика-трек-a-промокоды-и-программа-лояльности).
+- **Практика, трек F.** AI-ассистент на LangGraph, RAG на Qdrant — [раздел ниже](#учебная-практика-трек-f-ai-ассистент).
 
 ## Запуск
 
@@ -704,7 +706,7 @@ FCP — first contentful paint, «блюда в DOM» — момент появ�
 ### Запуск
 
 ```bash
-docker compose --profile app up -d --build
+docker compose up -d --build
 # Prometheus http://localhost:9090/targets, Grafana http://localhost:3001, Jaeger http://localhost:16686
 ```
 
@@ -770,7 +772,7 @@ pytest tests/integration -v        # 4 passed (~2 мин, нужен Docker)
 ### Нагрузочный тест (Locust)
 
 `load/mixed.py`: 70 % — `GET /menu/items`, 20 % — `GET /menu/items/{id}`, 10 % — `POST /orders/create`,
-пауза 1–3 с. Стенд — `docker compose --profile app up -d` (один процесс uvicorn).
+пауза 1–3 с. Стенд — `docker compose up -d` (один процесс uvicorn).
 
 ```bash
 locust -f load/mixed.py --host=http://127.0.0.1:8000     # 50 → 200 → 600 пользователей
@@ -793,6 +795,11 @@ threadpool'а FastAPI (40), и тогда встают даже `GET /menu/items
 Что делать: поднять `pool_size`/`max_overflow` под число потоков и лимит PostgreSQL, уменьшить `pool_timeout`, чтобы
 быстро отдавать 503 вместо 30 с ожидания, запустить несколько воркеров uvicorn и PgBouncer, закешировать
 `/menu/items/{id}` так же, как список.
+
+Исправлено позже, при нагрузочном тесте практики (там то же голодание подвесило приложение на минуты): пул
+`DB_POOL_SIZE=20` + `DB_MAX_OVERFLOW=20` по числу потоков threadpool'а (40), `DB_POOL_TIMEOUT_SECONDS=10`
+(`app/database.py`) и `uvicorn --limit-concurrency 40` (`Dockerfile`): лишние запросы сразу получают 503, а не встают
+в очередь, которая держит соединения с БД.
 
 ### CI (GitHub Actions)
 
@@ -843,3 +850,161 @@ docker run --rm -v "$PWD:/src" -w /src sirius_food-app bash scripts/mutmut_run.s
 и есть значения по умолчанию в dataclass-ах — поведение не меняется, убить такую мутацию никакой тест не может.
 
 Ответы на контрольные вопросы: [docs/pr10-answers.md](docs/pr10-answers.md).
+
+---
+
+## Учебная практика. Трек A: промокоды и программа лояльности
+
+Решения и компромиссы — [docs/adr/0001-promo-and-loyalty.md](docs/adr/0001-promo-and-loyalty.md).
+
+### Модель данных (миграция `dbf7b7ad0dec`)
+
+| Таблица | Поля |
+|---|---|
+| `promo_codes` | `code` (уникальный), `discount_type` (`percent`/`fixed`), `discount_value`, `valid_from`, `valid_until`, `max_uses`, `current_uses`, `min_order_amount`, `is_active` |
+| `promo_code_usages` | `promo_code_id`, `user_id`, `order_id` (уникальный), `discount` |
+| `loyalty_accounts` | `user_id` (уникальный), `balance`, `total_earned`, `tier` (`bronze`/`silver`/`gold`) |
+| `loyalty_transactions` | `account_id`, `amount`, `type` (`earn`/`spend`/`refund`/`revoke`), `order_id`, `idempotency_key` (уникальный) |
+| `orders` (+) | `promo_code_id`, `discount`, `points_spent` |
+
+Деньги в новых таблицах — `Numeric(12, 2)`, в коде — `Decimal`.
+
+### Где что в коде
+
+| Что | Файл |
+|---|---|
+| Сущности и правила (`PromoCode.discount_for`, `LoyaltyAccount.points_for`, `update_tier`) | `app/domain/entities.py` |
+| Промокоды: проверки, резерв, восстановление, деактивация | `app/modules/promo/service.py`, `repository.py`, `router.py` |
+| Лояльность: начисление, списание, компенсации | `app/modules/loyalty/service.py`, `repository.py`, `router.py` |
+| Промокод и баллы в заказе | `app/modules/orders/service.py` (`create_order`, `pay_order`) |
+| Consumer'ы Saga | `app/workers/loyalty_consumer.py`, `app/workers/promo_consumer.py` |
+| Celery Beat | `app/tasks/promo.py` |
+
+### Этапы
+
+1. **Модель данных** — таблицы выше, Alembic-миграция.
+2. **Промокод при создании заказа** — `POST /orders/create {"item_id": 1, "quantity": 2, "promo_code": "STUDENT10"}`.
+   `PromoService.quote` проверяет: промокод существует и активен, срок действия, лимит использований, минимальная
+   сумма, клиент ещё не применял этот код. Резерв — атомарный `UPDATE … WHERE current_uses < max_uses`; резерв,
+   заказ со скидкой, запись использования и списание денег — одна транзакция.
+3. **Начисление баллов после оплаты** — `loyalty_consumer` на `order.paid`: Bronze 3 %, Silver 5 % (от 1000
+   начисленных), Gold 7 % (от 5000), ключ `earn_order_{id}`, уровень пересчитывается после начисления.
+4. **Оплата баллами** — `POST /orders/{id}/pay {"points": 100}`: не больше 50 % суммы, баланс баллов достаточен,
+   ключ `spend_order_{id}`; деньги за оплаченную баллами часть возвращаются на баланс, `OrderPaid.amount` —
+   только денежная часть (с неё и начисляются баллы).
+5. **Saga при отмене** — отмена клиентом (`POST /orders/{id}/cancel`) и компенсация неудачной доставки (ЛР № 7)
+   публикуют `order.cancelled`. Лояльность возвращает списанные баллы (`refund_order_{id}`) и отзывает начисленные
+   (`revoke_earn_order_{id}`), промокоды уменьшают `current_uses` и удаляют запись использования
+   (`restore_promo_order_{id}`). Повторное событие ничего не делает.
+6. **Срок действия** — ленивая проверка при применении + Celery Beat раз в час ставит `is_active = false` истёкшим.
+7. **Конкурентность** — см. ниже.
+
+API: `POST /promo-codes`, `GET /promo-codes` (admin), `GET /loyalty/me` (баланс, уровень, процент, история).
+
+### Конкурентность: промокод с max_uses = 1
+
+Интеграционный тест на PostgreSQL (Testcontainers): 30 потоков одновременно оформляют заказ с одним промокодом.
+
+```bash
+pytest tests/integration/test_promo_race.py -v
+```
+
+Результат: ровно 1 заказ с промокодом, 29 — `PromoCodeExhaustedError`, `current_uses = 1`, одна запись использования.
+
+Locust (`load/promo_race.py`, подготовка — `python -m scripts.prepare_promo_race 1000`): 1000 студентов, каждый один
+раз пытается применить промокод `RACE1` с `max_uses = 1`.
+
+| Ответ | Запросов | Медиана | p95 |
+|---|---|---|---|
+| Промокод применён | 1 | 333 мс | 330 мс |
+| 400 «Промокод исчерпан» | 999 | 480 мс | 16 000 мс |
+| Ошибки 5xx | 0 | | |
+
+После прогона `current_uses = 1`, заказ с промокодом один. CSV — `docs/practice/`.
+При спавне 250 пользователей в секунду один процесс uvicorn не успевает: по `--limit-concurrency 40` лишние запросы
+сразу получают 503, а промокод всё равно применяется ровно один раз — корректность держит БД, а не скорость сервера.
+
+### Тесты
+
+`tests/unit/test_promo_service.py` (все правила промокода, резерв, восстановление, деактивация, валидация),
+`tests/unit/test_loyalty_service.py` (проценты уровней, повышение уровня, лимит 50 %, компенсации один раз),
+`tests/unit/test_order_promo_and_points.py` (скидка и баллы в заказе, событие отмены, возврат только денежной части),
+`tests/unit/test_events.py` (consumer'ы лояльности и промокодов идемпотентны),
+`tests/integration/test_promo_race.py` (гонка на PostgreSQL).
+
+---
+
+## Учебная практика. Трек F: AI-ассистент
+
+Решения и компромиссы — [docs/adr/0002-ai-assistant.md](docs/adr/0002-ai-assistant.md).
+Стек: LangChain + LangGraph, OpenRouter (`google/gemini-3.8-flash`, эмбеддинги `openai/text-embedding-ada-002`), Qdrant.
+
+### Где что в коде (`app/modules/assistant/`)
+
+| Файл | Что делает |
+|---|---|
+| `service.py` | `AssistantService`: вопрос → агент → ответ; fallback, метрики, логи, сохранение, оценка ответа. Интерфейс `AssistantAgent` |
+| `langgraph_agent.py` | `LangGraphAssistantAgent`: системный промпт и агент `create_agent` (LangGraph) |
+| `tools.py` | Инструменты агента, замкнутые на текущего пользователя: `search_knowledge`, `my_orders`, `my_loyalty` |
+| `knowledge.py` | RAG: документы из меню и `faq.md`, векторное хранилище Qdrant, поиск |
+| `llm.py` | Клиенты модели и эмбеддингов (OpenRouter) |
+| `repository.py`, `router.py`, `metrics.py` | Таблица `assistant_messages`, API, метрики Prometheus |
+
+### Этапы
+
+1. **Интеграция с LLM** — `ChatOpenAI` с `base_url` OpenRouter, ключ `OPENROUTER_API_KEY` в `.env`.
+2. **RAG** — `python -m scripts.index_knowledge`: меню из БД и разделы `faq.md` → эмбеддинги → коллекция Qdrant
+   `sirius_knowledge`. При вопросе инструмент `search_knowledge` ищет 4 ближайших документа, модель отвечает по ним.
+3. **Контекст пользователя** — `my_orders` (последние заказы и их статусы: «где мой заказ», «повторить сырники?»),
+   `my_loyalty` (баллы, уровень и действующие промокоды из трека A).
+4. **Метрики и ошибки** — время ответа в `assistant_messages.latency_ms` и гистограмме `assistant_response_seconds`,
+   релевантность — оценка пользователя `POST /assistant/messages/{id}/feedback {"helpful": true}` и счётчик
+   `assistant_feedback_total`; если модель или Qdrant недоступны — «Извините, ассистент сейчас недоступен…»
+   (`is_fallback = true`); каждый вопрос и ответ пишутся в JSON-лог `assistant_answered` с correlation_id.
+5. **Полный пайплайн и ADR** — эмбеддинги → векторный поиск → генерация с инструментами; ADR 0002.
+
+API: `POST /assistant/chat {"question": "..."}` → `{id, answer, latency_ms, is_fallback}`.
+
+### Запуск и проверка
+
+```bash
+docker compose up -d --build     # включая qdrant
+python -m scripts.index_knowledge                # индекс меню и FAQ
+python -m scripts.demo_assistant                 # 4 вопроса от имени студента
+```
+
+Живой прогон (`scripts/demo_assistant.py`, студент с заказами):
+
+```
+Вопрос: Что у вас есть из супов и сколько стоит?
+Ответ (10188 мс, fallback=False): В меню сейчас есть следующие супы:
+
+* **Борщ с пампушками** — 250 ₽
+* **Солянка мясная** — 250 ₽
+
+Оба блюда в наличии. Хотите что-нибудь заказать?
+
+Вопрос: Сколько стоит доставка и до скольки вы работаете?
+Ответ (5242 мс, fallback=False): Доставка по кампусу «Сириус» бесплатная! 
+
+Столовая принимает заказы ежедневно с 8:00 до 22:00. Готовим за 15–25 минут, а доставка занимает до 20 минут.
+
+Вопрос: Где мой последний заказ?
+Ответ (7918 мс, fallback=False): Ваш последний заказ — **#1130** (Капучино × 1 на сумму 140 ₽). 
+
+Его статус сейчас: **processing** — заказ оформлен и ожидает оплаты. Как только он будет оплачен, кухня сразу начнёт его готовить!
+
+Вопрос: Сколько у меня баллов и есть ли сейчас промокоды?
+Ответ (3889 мс, fallback=False): На вашем балансе сейчас **0 баллов**, уровень программы лояльности — **Bronze** (начисляется 3% от суммы каждого заказа).
+
+Активных промокодов на данный момент нет. Совершайте заказы, чтобы копить баллы и оплачивать ими до 50% будущих покупок! Помочь выбрать что-нибудь вкусное?
+```
+
+Каждый ответ опирается на инструмент: меню и FAQ из Qdrant, заказ #1130 из БД, баллы и промокоды из трека A.
+
+### Тесты
+
+`tests/unit/test_assistant.py`: ответ сохраняется со временем, недоступная модель → fallback, оценивать можно только
+свои ответы, FAQ разбит на темы, `search_knowledge` ищет по векторному хранилищу, `my_orders` показывает только
+заказы текущего клиента, `my_loyalty` — баллы и промокоды, агент LangGraph вызывает инструмент и отвечает по его
+результату (модель подменена скриптовой, без сети).

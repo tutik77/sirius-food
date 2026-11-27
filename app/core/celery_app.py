@@ -7,7 +7,7 @@ celery_app = Celery(
     "sirius_food",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.orders", "app.tasks.stats"],
+    include=["app.tasks.orders", "app.tasks.stats", "app.tasks.promo"],
 )
 
 celery_app.conf.update(
@@ -29,6 +29,10 @@ celery_app.conf.update(
         "update-daily-order-stats": {
             "task": "app.tasks.stats.update_daily_order_stats",
             "schedule": 60.0,
+        },
+        "deactivate-expired-promo-codes": {
+            "task": "app.tasks.promo.deactivate_expired_promo_codes",
+            "schedule": 3600.0,
         },
     },
 )
