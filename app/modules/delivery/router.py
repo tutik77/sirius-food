@@ -20,7 +20,7 @@ def assign_courier(
     try:
         delivery = gateway.assign_courier(order_id=payload.order_id, courier_id=payload.courier_id)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "delivery_id": delivery.id}
 
@@ -33,7 +33,7 @@ def my_deliveries(
     try:
         return gateway.list_courier_deliveries(current_user)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
 
 @router.get("/{delivery_id}", response_model=DeliveryResponse)
@@ -45,7 +45,7 @@ def get_delivery(
     try:
         return gateway.get_delivery(delivery_id, current_user)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
 
 @router.patch("/{delivery_id}/complete")
@@ -57,6 +57,6 @@ def complete_delivery(
     try:
         gateway.complete_delivery(delivery_id, current_user)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success"}

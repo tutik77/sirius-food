@@ -1,16 +1,3 @@
-"""
-Замер нагрузки на GET /menu/items для ЛР № 4 (до и после кеша).
-
-Запускает Locust без UI (500 пользователей, spawn rate 10) и параллельно
-снимает нагрузку на PostgreSQL: сколько транзакций он выполнил за прогон
-и загрузку CPU контейнера db. Сервер приложения должен быть запущен.
-
-    python scripts/measure_menu_load.py before
-    python scripts/measure_menu_load.py after
-
-Результаты: docs/pr4/<label>_stats.csv, <label>_stats_history.csv,
-<label>.html (отчёт Locust с графиками) и <label>_db.json.
-"""
 import json
 import statistics
 import subprocess
@@ -26,7 +13,6 @@ DSN = "postgresql://sirius:sirius@127.0.0.1:5432/sirius_food"
 
 
 def db_counters() -> tuple[int, int]:
-    """Число завершённых транзакций и прочитанных строк в БД sirius_food."""
     with psycopg2.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT xact_commit + xact_rollback, tup_returned "
@@ -36,7 +22,6 @@ def db_counters() -> tuple[int, int]:
 
 
 def sample_db_cpu(samples: list[float], stop: threading.Event) -> None:
-    """Загрузка CPU контейнера с PostgreSQL (docker stats), % от одного ядра."""
     while not stop.is_set():
         out = subprocess.run(
             ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", "sirius_food-db-1"],

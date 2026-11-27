@@ -1,6 +1,3 @@
-"""
-Доменные исключения модуля заказов.
-"""
 from app.domain.errors import BusinessRuleError, ForbiddenError, NotFoundError
 
 
@@ -25,8 +22,6 @@ class OrderNotFoundError(NotFoundError):
 
 
 class AccessDeniedError(ForbiddenError):
-    """Пользователь не имеет прав на этот заказ (защита от IDOR)."""
-
     message = "Нет доступа к чужому заказу"
 
 

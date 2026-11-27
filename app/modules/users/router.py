@@ -1,6 +1,3 @@
-"""
-Транспортный слой модуля пользователей (круг Frameworks & Drivers).
-"""
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.container import get_user_service
@@ -17,16 +14,13 @@ router = APIRouter()
 
 @router.post("/register", dependencies=[Depends(rate_limit(5, 60))])
 def register_user(payload: UserCreate, service: UserService = Depends(get_user_service)):
-    # Формат email и длину пароля проверяет Pydantic, длину телефона — роутер.
-    # Уникальность email — бизнес-правило, его проверяет сервис.
-    # Роль при самостоятельной регистрации всегда student.
     if payload.phone and len(payload.phone) < 10:
         raise HTTPException(status_code=400, detail="Некорректный формат номера телефона")
 
     try:
         user = service.register(email=payload.email, password=payload.password, phone=payload.phone)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "user_id": user.id, "email": user.email}
 
@@ -49,7 +43,7 @@ def top_up_balance(
     try:
         user = service.top_up(user_id, amount, actor=current_user)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "new_balance": user.balance}
 
@@ -64,6 +58,6 @@ def change_role(
     try:
         user = service.change_role(user_id, payload.role)
     except DomainError as e:
-        raise to_http(e)
+        raise to_http(e) from e
 
     return {"status": "success", "user_id": user.id, "role": user.role}

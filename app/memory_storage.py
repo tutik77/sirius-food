@@ -1,16 +1,19 @@
-"""
-In-memory хранилище для in-memory реализаций репозиториев.
-
-Один объект InMemoryStorage — это «база данных» из нескольких словарей.
-Объекты копируются при записи и чтении, чтобы поведение совпадало
-с настоящей СУБД: изменение полученной сущности без вызова репозитория
-ничего не сохраняет.
-"""
 from collections import defaultdict
 from dataclasses import replace
 from typing import TypeVar
 
-from app.domain.entities import Delivery, MenuItem, Order, RefreshToken, User
+from app.domain.entities import (
+    AssistantMessage,
+    Delivery,
+    LoyaltyAccount,
+    LoyaltyTransaction,
+    MenuItem,
+    Order,
+    PromoCode,
+    PromoUsage,
+    RefreshToken,
+    User,
+)
 from app.domain.events import Event
 
 T = TypeVar("T")
@@ -22,17 +25,19 @@ class InMemoryStorage:
         self.menu_items: dict[int, MenuItem] = {}
         self.orders: dict[int, Order] = {}
         self.deliveries: dict[int, Delivery] = {}
-        # Ключ — хеш токена, как уникальный индекс token_hash в БД.
         self.refresh_tokens: dict[str, RefreshToken] = {}
         self.outbox: list[Event] = []
+        self.promo_codes: dict[int, PromoCode] = {}
+        self.promo_usages: dict[int, PromoUsage] = {}
+        self.loyalty_accounts: dict[int, LoyaltyAccount] = {}
+        self.loyalty_transactions: dict[str, LoyaltyTransaction] = {}
+        self.assistant_messages: dict[int, AssistantMessage] = {}
         self._sequences: dict[str, int] = defaultdict(int)
 
     def next_id(self, table: str) -> int:
-        """Аналог автоинкремента первичного ключа."""
         self._sequences[table] += 1
         return self._sequences[table]
 
 
 def copy(entity: T | None) -> T | None:
-    """Копия сущности (или None), чтобы снаружи нельзя было менять хранилище напрямую."""
     return replace(entity) if entity is not None else None

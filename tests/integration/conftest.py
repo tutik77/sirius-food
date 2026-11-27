@@ -19,7 +19,10 @@ from app.core.security import hash_password
 from app.main import app
 
 ROOT = Path(__file__).resolve().parents[2]
-TABLES = "outbox_events, processed_events, kitchen_orders, deliveries, orders, refresh_tokens, menu_items, users"
+TABLES = (
+    "assistant_messages, loyalty_transactions, loyalty_accounts, promo_code_usages, outbox_events, processed_events, kitchen_orders, "
+    "deliveries, orders, promo_codes, refresh_tokens, menu_items, users"
+)
 
 
 @pytest.fixture(scope="session")

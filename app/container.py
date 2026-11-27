@@ -1,11 +1,3 @@
-"""
-Composition root: здесь собираются слои.
-
-Роутеры получают готовые сервисы через Depends и не знают, какая
-реализация репозитория под ними работает. Реализация выбирается
-переменной окружения STORAGE_BACKEND (postgres | memory), при этом
-service.py и router.py не меняются.
-"""
 from functools import lru_cache
 
 from fastapi import Depends
@@ -15,14 +7,28 @@ from app.core.config import settings
 from app.core.redis import redis_client
 from app.database import SessionLocal, get_db
 from app.memory_storage import InMemoryStorage
+from app.modules.assistant.knowledge import qdrant_knowledge_base
+from app.modules.assistant.langgraph_agent import LangGraphAssistantAgent
+from app.modules.assistant.llm import chat_model
+from app.modules.assistant.repository import (
+    AssistantMessageRepository,
+    InMemoryAssistantMessageRepository,
+    SqlAlchemyAssistantMessageRepository,
+)
+from app.modules.assistant.service import AssistantService
+from app.modules.assistant.tools import AssistantContext
 from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
 from app.modules.auth.service import AuthService
 from app.modules.delivery.gateway import DeliveryGateway
 from app.modules.delivery.grpc_client import DeliveryGrpcClient
+from app.modules.loyalty.repository import InMemoryLoyaltyRepository, LoyaltyRepository, SqlAlchemyLoyaltyRepository
+from app.modules.loyalty.service import LoyaltyService
 from app.modules.menu.repository import InMemoryMenuRepository, MenuRepository, SqlAlchemyMenuRepository
 from app.modules.menu.service import MenuService
 from app.modules.orders.repository import InMemoryOrderRepository, OrderRepository, SqlAlchemyOrderRepository
 from app.modules.orders.service import OrderService
+from app.modules.promo.repository import InMemoryPromoRepository, PromoRepository, SqlAlchemyPromoRepository
+from app.modules.promo.service import PromoService
 from app.modules.users.repository import InMemoryUserRepository, SqlAlchemyUserRepository, UserRepository
 from app.modules.users.service import UserService
 
@@ -30,7 +36,6 @@ memory_storage = InMemoryStorage()
 
 
 def get_session():
-    """Сессия БД для SQLAlchemy-репозиториев; в режиме memory сессия не открывается."""
     if settings.STORAGE_BACKEND == "memory":
         yield None
     else:
@@ -64,7 +69,6 @@ def get_menu_repository(db: Session | None = Depends(get_session)) -> MenuReposi
 
 
 def warm_up_menu_cache() -> None:
-    """Заполняет кеш меню при старте приложения (cache warm-up)."""
     if settings.STORAGE_BACKEND == "memory":
         return
     with SessionLocal() as db:
@@ -81,8 +85,32 @@ def get_order_repository(db: Session | None = Depends(get_session)) -> OrderRepo
     return SqlAlchemyOrderRepository(db)
 
 
-def get_order_service(repository: OrderRepository = Depends(get_order_repository)) -> OrderService:
-    return OrderService(repository)
+def get_promo_repository(db: Session | None = Depends(get_session)) -> PromoRepository:
+    if settings.STORAGE_BACKEND == "memory":
+        return InMemoryPromoRepository(memory_storage)
+    return SqlAlchemyPromoRepository(db)
+
+
+def get_promo_service(repository: PromoRepository = Depends(get_promo_repository)) -> PromoService:
+    return PromoService(repository)
+
+
+def get_loyalty_repository(db: Session | None = Depends(get_session)) -> LoyaltyRepository:
+    if settings.STORAGE_BACKEND == "memory":
+        return InMemoryLoyaltyRepository(memory_storage)
+    return SqlAlchemyLoyaltyRepository(db)
+
+
+def get_loyalty_service(repository: LoyaltyRepository = Depends(get_loyalty_repository)) -> LoyaltyService:
+    return LoyaltyService(repository)
+
+
+def get_order_service(
+    repository: OrderRepository = Depends(get_order_repository),
+    promo: PromoService = Depends(get_promo_service),
+    loyalty: LoyaltyService = Depends(get_loyalty_service),
+) -> OrderService:
+    return OrderService(repository, promo, loyalty)
 
 
 @lru_cache
@@ -92,3 +120,25 @@ def delivery_client(address: str) -> DeliveryGrpcClient:
 
 def get_delivery_gateway() -> DeliveryGateway:
     return delivery_client(settings.DELIVERY_GRPC_ADDR)
+
+
+def get_assistant_repository(db: Session | None = Depends(get_session)) -> AssistantMessageRepository:
+    if settings.STORAGE_BACKEND == "memory":
+        return InMemoryAssistantMessageRepository(memory_storage)
+    return SqlAlchemyAssistantMessageRepository(db)
+
+
+def get_assistant_context(
+    orders: OrderService = Depends(get_order_service),
+    menu: MenuService = Depends(get_menu_service),
+    loyalty: LoyaltyService = Depends(get_loyalty_service),
+    promo: PromoService = Depends(get_promo_service),
+) -> AssistantContext:
+    return AssistantContext(knowledge=qdrant_knowledge_base, orders=orders, menu=menu, loyalty=loyalty, promo=promo)
+
+
+def get_assistant_service(
+    context: AssistantContext = Depends(get_assistant_context),
+    repository: AssistantMessageRepository = Depends(get_assistant_repository),
+) -> AssistantService:
+    return AssistantService(LangGraphAssistantAgent(chat_model, context), repository)

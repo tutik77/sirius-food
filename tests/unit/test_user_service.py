@@ -1,7 +1,3 @@
-"""
-Unit-тесты UserService. СУБД не запускается: репозитории — in-memory
-или SQLAlchemy поверх SQLite в памяти (фикстура repos).
-"""
 import pytest
 
 from app.core.security import verify_password

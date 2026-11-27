@@ -1,15 +1,3 @@
-"""
-Демонстрация сценариев проверки из раздела 5 ЛР № 3 на запущенном сервере.
-
-Подготовка:
-    docker compose up -d db redis
-    alembic upgrade head
-    python -m app.cli create-user admin@sirius.ru AdminPass123 --role admin
-    uvicorn app.main:app
-
-Запуск:
-    python scripts/demo_security.py [--base-url http://127.0.0.1:8000]
-"""
 import argparse
 import uuid
 
@@ -32,13 +20,10 @@ def main() -> None:
         print(f"{title}\n    -> {response.status_code} {response.text}\n")
 
     def login(email: str, password: str = PASSWORD) -> dict:
-        # Подготовительные входы идут через /auth/token: лимит считается на пару
-        # «IP + путь», и сценарий 5 на /auth/login начнётся с чистого счётчика.
         r = api.post("/auth/token", data={"username": email, "password": password})
         r.raise_for_status()
         return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
-    # Подготовка данных: два студента и блюдо.
     admin = login(args.admin_email, args.admin_password)
     anna, boris = f"anna_{run}@sirius.ru", f"boris_{run}@sirius.ru"
     anna_id = api.post("/users/register", json={"email": anna, "password": PASSWORD}).json()["user_id"]

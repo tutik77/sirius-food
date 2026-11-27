@@ -1,0 +1,9 @@
+line-length = 120
+target-version = "py311"
+extend-exclude = ["proto", "alembic", "frontend", "mutants"]
+
+[lint]
+select = ["F", "I"]
+
+[lint.isort]
+known-first-party = ["app", "delivery_service", "proto", "tests"]

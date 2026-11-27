@@ -1,13 +1,5 @@
-"""
-Общие фикстуры.
-
-Фикстура repos параметризована: каждый тест, который её использует,
-выполняется дважды — на in-memory репозиториях и на SQLAlchemy-репозиториях
-поверх SQLite в памяти. Сервер PostgreSQL для тестов не нужен.
-"""
 import os
 
-# Переменные окружения важнее .env, поэтому локальный .env на тесты не влияет.
 os.environ.update(
     STORAGE_BACKEND="memory",
     SECRET_KEY="test-secret-key-for-pytest-only-0123456789",
@@ -16,6 +8,8 @@ os.environ.update(
     ALLOWED_ORIGINS='["https://sirius-food.ru"]',
     BCRYPT_ROUNDS="4",
     TESTCONTAINERS_RYUK_DISABLED="true",
+    SENTRY_DSN="",
+    OTEL_EXPORTER_OTLP_ENDPOINT="",
 )
 
 from itertools import count
@@ -31,14 +25,16 @@ from app.database import Base
 from app.domain.entities import Role, User
 from app.memory_storage import InMemoryStorage
 from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
+from app.modules.loyalty.repository import InMemoryLoyaltyRepository, LoyaltyRepository, SqlAlchemyLoyaltyRepository
+from app.modules.menu.repository import InMemoryMenuRepository, MenuRepository, SqlAlchemyMenuRepository
+from app.modules.orders.repository import InMemoryOrderRepository, OrderRepository, SqlAlchemyOrderRepository
+from app.modules.promo.repository import InMemoryPromoRepository, PromoRepository, SqlAlchemyPromoRepository
+from app.modules.users.repository import InMemoryUserRepository, SqlAlchemyUserRepository, UserRepository
 from delivery_service.repository import (
     DeliveryRepository,
     InMemoryDeliveryRepository,
     SqlAlchemyDeliveryRepository,
 )
-from app.modules.menu.repository import InMemoryMenuRepository, MenuRepository, SqlAlchemyMenuRepository
-from app.modules.orders.repository import InMemoryOrderRepository, OrderRepository, SqlAlchemyOrderRepository
-from app.modules.users.repository import InMemoryUserRepository, SqlAlchemyUserRepository, UserRepository
 
 
 class Repos(NamedTuple):
@@ -47,6 +43,8 @@ class Repos(NamedTuple):
     orders: OrderRepository
     delivery: DeliveryRepository
     auth: AuthRepository
+    promo: PromoRepository
+    loyalty: LoyaltyRepository
 
 
 @pytest.fixture
@@ -58,7 +56,6 @@ def sqlite_session():
     )
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    # В PostgreSQL роли заводит миграция, здесь — вручную.
     session.add_all(models.Role(name=role.value) for role in Role)
     session.commit()
     yield session
@@ -76,6 +73,8 @@ def repos(request) -> Repos:
             InMemoryOrderRepository(storage),
             InMemoryDeliveryRepository(storage),
             InMemoryAuthRepository(storage),
+            InMemoryPromoRepository(storage),
+            InMemoryLoyaltyRepository(storage),
         )
     session = request.getfixturevalue("sqlite_session")
     return Repos(
@@ -84,6 +83,8 @@ def repos(request) -> Repos:
         SqlAlchemyOrderRepository(session),
         SqlAlchemyDeliveryRepository(session),
         SqlAlchemyAuthRepository(session),
+        SqlAlchemyPromoRepository(session),
+        SqlAlchemyLoyaltyRepository(session),
     )
 
 
@@ -92,8 +93,6 @@ _emails = count(1)
 
 @pytest.fixture
 def make_user(repos):
-    """Создаёт пользователя напрямую через репозиторий, минуя регистрацию."""
-
     def factory(role: str = Role.STUDENT, balance: float = 0.0, is_blocked: bool = False) -> User:
         return repos.users.add(
             User(

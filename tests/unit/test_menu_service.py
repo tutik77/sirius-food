@@ -1,6 +1,3 @@
-"""
-Unit-тесты MenuService без СУБД.
-"""
 import pytest
 
 from app.modules.menu.exceptions import (
