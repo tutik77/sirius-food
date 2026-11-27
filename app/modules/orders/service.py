@@ -1,15 +1,11 @@
-"""
-Слой бизнес-логики модуля заказов (круги Entities и Use Cases).
-
-Импорты fastapi и sqlalchemy здесь запрещены: сервис зависит только
-от доменных сущностей и абстрактного OrderRepository.
-"""
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 import structlog
 
-from app.domain.entities import Order, OrderStatus, User
+from app.domain.entities import Order, OrderStatus, PromoUsage, User, money
 from app.domain.events import OrderCancelled, OrderPaid
+from app.modules.loyalty.service import LoyaltyService
 from app.modules.orders.exceptions import (
     AccessDeniedError,
     InsufficientFundsError,
@@ -21,24 +17,24 @@ from app.modules.orders.exceptions import (
     UserNotFoundError,
 )
 from app.modules.orders.repository import OrderRepository
+from app.modules.promo.service import PromoQuote, PromoService
 from app.tasks.orders import generate_order_pdf, send_order_email, send_order_sms
 
 logger = structlog.get_logger(__name__)
 
 
 class OrderService:
-    """Бизнес-правила оформления и отмены заказов."""
-
-    def __init__(self, repository: OrderRepository):
-        # Зависимость приходит снаружи через конструктор (инверсия зависимостей).
+    def __init__(
+        self,
+        repository: OrderRepository,
+        promo: PromoService | None = None,
+        loyalty: LoyaltyService | None = None,
+    ):
         self.repository = repository
+        self.promo = promo
+        self.loyalty = loyalty
 
-    def create_order(self, user_id: int, item_id: int, quantity: int) -> Order:
-        """
-        Сценарий оформления заказа: проверяет пользователя, блюдо и баланс,
-        списывает стоимость и сохраняет заказ.
-        user_id приходит из JWT, а не из тела запроса.
-        """
+    def create_order(self, user_id: int, item_id: int, quantity: int, promo_code: str | None = None) -> Order:
         user = self.repository.get_user_by_id(user_id)
         if user is None:
             raise UserNotFoundError()
@@ -49,9 +45,14 @@ class OrderService:
         if not item.is_available:
             raise MenuItemUnavailableError()
 
-        total_cost = item.price * quantity
+        full_price = item.price * quantity
+        quote = self.promo.quote(promo_code, user.id, money(full_price)) if promo_code else None
+        discount = float(quote.discount) if quote else 0.0
+        total_cost = full_price - discount
         if user.balance < total_cost:
             raise InsufficientFundsError()
+        if quote:
+            self.promo.reserve(quote)
 
         user.balance -= total_cost
         order = Order(
@@ -61,11 +62,19 @@ class OrderService:
             quantity=quantity,
             status=OrderStatus.PROCESSING,
             total_cost=total_cost,
+            promo_code_id=quote.promo.id if quote else None,
+            discount=discount,
         )
-        saved = self.repository.save_order(order, payer=user)
+        saved = self.repository.save_order(order, payer=user, promo_usage=self._promo_usage(quote, user))
         logger.info("order_created", order_id=saved.id, user_id=user.id, total_cost=total_cost)
         self._schedule_order_notifications(saved, user)
         return saved
+
+    @staticmethod
+    def _promo_usage(quote: PromoQuote | None, user: User) -> PromoUsage | None:
+        if quote is None:
+            return None
+        return PromoUsage(id=None, promo_code_id=quote.promo.id, user_id=user.id, order_id=None, discount=quote.discount)
 
     @staticmethod
     def _schedule_order_notifications(order: Order, user: User) -> None:
@@ -75,10 +84,6 @@ class OrderService:
             send_order_sms.delay(order.id, user.phone)
 
     def cancel_order(self, order_id: int, current_user: User) -> Order:
-        """
-        Отменяет заказ и возвращает деньги. Защита от IDOR: отменить можно
-        только свой заказ (администратор — любой), и только пока он готовится.
-        """
         order = self.repository.get_order(order_id)
         if order is None:
             raise OrderNotFoundError()
@@ -88,12 +93,14 @@ class OrderService:
             raise OrderCannotBeCancelledError()
 
         payer = self.repository.get_user_by_id(order.user_id)
-        payer.balance += order.total_cost or 0.0
+        refund = order.paid_with_money
+        payer.balance += refund
         order.status = OrderStatus.CANCELLED
-        self.repository.save_cancellation(order, payer)
+        event = OrderCancelled(order_id=order.id, refund=refund, reason="Отменён клиентом")
+        self.repository.save_cancellation(order, payer, event)
         return order
 
-    def pay_order(self, order_id: int, current_user: User) -> Order:
+    def pay_order(self, order_id: int, current_user: User, points: Decimal = Decimal("0")) -> Order:
         order = self.repository.get_order(order_id)
         if order is None:
             raise OrderNotFoundError()
@@ -102,9 +109,15 @@ class OrderService:
         if order.status != OrderStatus.PROCESSING:
             raise OrderCannotBePaidError()
 
+        payer = self.repository.get_user_by_id(order.user_id)
+        spent = self.loyalty.spend(payer.id, order.id, points, money(order.total_cost or 0)) if points else None
+        if spent:
+            order.points_spent = float(-spent.amount)
+            payer.balance += order.points_spent
+
         order.status = OrderStatus.PAID
-        event = OrderPaid(order_id=order.id, user_id=order.user_id, amount=order.total_cost or 0.0)
-        self.repository.save_payment(order, event)
+        event = OrderPaid(order_id=order.id, user_id=order.user_id, amount=order.paid_with_money)
+        self.repository.save_payment(order, payer, event)
         logger.info("order_paid", order_id=order.id, user_id=order.user_id, event_id=event.event_id)
         return order
 
@@ -113,7 +126,7 @@ class OrderService:
         if order is None or order.status != OrderStatus.PAID:
             return None
 
-        refund = order.total_cost or 0.0
+        refund = order.paid_with_money
         payer = self.repository.get_user_by_id(order.user_id)
         payer.balance += refund
         order.status = OrderStatus.CANCELLED
@@ -122,7 +135,6 @@ class OrderService:
         return order
 
     def list_user_orders(self, current_user: User) -> list[Order]:
-        """Заказы текущего пользователя — только его собственные."""
         return self.repository.list_by_user(current_user.id)
 
     def count_orders_for_day(self, day: date) -> int:
@@ -130,5 +142,4 @@ class OrderService:
         return self.repository.count_created_between(start, start + timedelta(days=1))
 
     def get_kitchen_orders(self) -> list[Order]:
-        """Очередь кухни: заказы, которые нужно приготовить."""
         return self.repository.list_by_status(OrderStatus.PROCESSING)

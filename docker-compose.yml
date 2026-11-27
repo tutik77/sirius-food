@@ -7,9 +7,17 @@ x-app: &app
     RABBITMQ_URL: amqp://sirius:sirius@rabbitmq:5672/
     DELIVERY_GRPC_ADDR: delivery:50051
     OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
-  depends_on: [db, redis, rabbitmq]
+    QDRANT_URL: http://qdrant:6333
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_started
+    rabbitmq:
+      condition: service_started
+    qdrant:
+      condition: service_started
   restart: unless-stopped
-  profiles: [app]
 
 services:
   db:
@@ -41,6 +49,15 @@ services:
     volumes:
       - ./observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
 
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://sirius:sirius@db:5432/sirius_food
+    command: alembic upgrade head
+    depends_on: [db]
+    restart: on-failure
+
   app:
     <<: *app
     container_name: sirius_app
@@ -67,6 +84,16 @@ services:
     container_name: sirius_orders_saga
     command: python -m app.workers.order_saga_consumer
 
+  loyalty:
+    <<: *app
+    container_name: sirius_loyalty
+    command: python -m app.workers.loyalty_consumer
+
+  promo:
+    <<: *app
+    container_name: sirius_promo
+    command: python -m app.workers.promo_consumer
+
   outbox_relay:
     <<: *app
     container_name: sirius_outbox_relay
@@ -76,6 +103,11 @@ services:
     <<: *app
     container_name: sirius_celery_worker
     command: celery -A app.core.celery_app worker -Q default --loglevel=info
+
+  celery_beat:
+    <<: *app
+    container_name: sirius_celery_beat
+    command: celery -A app.core.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
 
   redis_exporter:
     image: oliver006/redis_exporter:latest
@@ -103,6 +135,14 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on: [prometheus]
 
+  qdrant:
+    image: qdrant/qdrant:v1.15.1
+    container_name: sirius_qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: sirius_jaeger
@@ -114,3 +154,4 @@ services:
 
 volumes:
   pg_data:
+  qdrant_data:
