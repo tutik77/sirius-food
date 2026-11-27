@@ -31,3 +31,7 @@ class ForbiddenError(DomainError):
 
 class BusinessRuleError(DomainError):
     """Операция нарушает бизнес-правило."""
+
+
+class ServiceUnavailableError(DomainError):
+    message = "Сервис временно недоступен"

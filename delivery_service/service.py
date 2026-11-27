@@ -2,7 +2,7 @@
 Слой бизнес-логики модуля доставки (круги Entities и Use Cases).
 """
 from app.domain.entities import Delivery, DeliveryStatus, OrderStatus, Role, User
-from app.modules.delivery.exceptions import (
+from delivery_service.exceptions import (
     CourierBlockedError,
     CourierBusyError,
     CourierNotFoundError,
@@ -14,7 +14,7 @@ from app.modules.delivery.exceptions import (
     OrderNotFoundError,
     OrderNotPaidError,
 )
-from app.modules.delivery.repository import DeliveryRepository
+from delivery_service.repository import DeliveryRepository
 
 
 class DeliveryService:

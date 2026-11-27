@@ -14,3 +14,5 @@ redis==8.1.0
 python-multipart==0.0.32
 celery==5.7.0
 flower==2.2.0
+grpcio==1.85.4
+grpcio-tools==1.85.4

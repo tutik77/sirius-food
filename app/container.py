@@ -6,6 +6,8 @@ Composition root: здесь собираются слои.
 переменной окружения STORAGE_BACKEND (postgres | memory), при этом
 service.py и router.py не меняются.
 """
+from functools import lru_cache
+
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
@@ -15,12 +17,8 @@ from app.database import SessionLocal, get_db
 from app.memory_storage import InMemoryStorage
 from app.modules.auth.repository import AuthRepository, InMemoryAuthRepository, SqlAlchemyAuthRepository
 from app.modules.auth.service import AuthService
-from app.modules.delivery.repository import (
-    DeliveryRepository,
-    InMemoryDeliveryRepository,
-    SqlAlchemyDeliveryRepository,
-)
-from app.modules.delivery.service import DeliveryService
+from app.modules.delivery.gateway import DeliveryGateway
+from app.modules.delivery.grpc_client import DeliveryGrpcClient
 from app.modules.menu.repository import InMemoryMenuRepository, MenuRepository, SqlAlchemyMenuRepository
 from app.modules.menu.service import MenuService
 from app.modules.orders.repository import InMemoryOrderRepository, OrderRepository, SqlAlchemyOrderRepository
@@ -87,13 +85,10 @@ def get_order_service(repository: OrderRepository = Depends(get_order_repository
     return OrderService(repository)
 
 
-def get_delivery_repository(db: Session | None = Depends(get_session)) -> DeliveryRepository:
-    if settings.STORAGE_BACKEND == "memory":
-        return InMemoryDeliveryRepository(memory_storage)
-    return SqlAlchemyDeliveryRepository(db)
+@lru_cache
+def delivery_client(address: str) -> DeliveryGrpcClient:
+    return DeliveryGrpcClient(address)
 
 
-def get_delivery_service(
-    repository: DeliveryRepository = Depends(get_delivery_repository),
-) -> DeliveryService:
-    return DeliveryService(repository)
+def get_delivery_gateway() -> DeliveryGateway:
+    return delivery_client(settings.DELIVERY_GRPC_ADDR)

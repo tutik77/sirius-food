@@ -4,7 +4,7 @@ Unit-тесты DeliveryService без СУБД.
 import pytest
 
 from app.domain.entities import Delivery, DeliveryStatus, MenuItem, Order, OrderStatus, Role
-from app.modules.delivery.exceptions import (
+from delivery_service.exceptions import (
     CourierBlockedError,
     CourierBusyError,
     CourierNotFoundError,
@@ -16,7 +16,7 @@ from app.modules.delivery.exceptions import (
     OrderNotFoundError,
     OrderNotPaidError,
 )
-from app.modules.delivery.service import DeliveryService
+from delivery_service.service import DeliveryService
 
 
 @pytest.fixture

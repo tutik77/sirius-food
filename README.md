@@ -7,6 +7,7 @@
 - **ЛР № 3.** Аутентификация и авторизация: JWT, RBAC, защита от IDOR — [раздел ниже](#лр--3-безопасность-jwt-rbac-idor), тег `pr3`.
 - **ЛР № 4.** Кеширование: Cache-Aside на Redis — [раздел ниже](#лр--4-кеширование-cache-aside-на-redis), тег `pr4`.
 - **ЛР № 5.** Фоновые задачи: Celery, ретраи, DLQ, Flower, Beat — [раздел ниже](#лр--5-фоновые-задачи-celery), тег `pr5`.
+- **ЛР № 6.** Strangler Fig: delivery в gRPC-микросервис, стриминг — [раздел ниже](#лр--6-strangler-fig-delivery-в-grpc-микросервис), тег `pr6`.
 
 ## Запуск
 
@@ -454,3 +455,87 @@ celery -A app.core.celery_app flower                                # http://loc
 В тестах `.delay` подменён фикстурой `scheduled_tasks`, брокер не нужен.
 
 Ответы на контрольные вопросы: [docs/pr5-answers.md](docs/pr5-answers.md).
+
+---
+
+## ЛР № 6. Strangler Fig: delivery в gRPC-микросервис
+
+### Что сделано
+
+- `proto/delivery.proto` — контракт: `AssignCourier`, `GetDelivery`, `ListCourierDeliveries`, `CompleteDelivery`,
+  `TrackDelivery` (server streaming), `ChatWithCourier` (bidirectional streaming).
+  Код сгенерирован в `proto/delivery_pb2.py`, `proto/delivery_pb2_grpc.py`.
+- `delivery_service/` — отдельный процесс на порту 50051. Сюда переехала бизнес-логика доставки
+  (`service.py`, `repository.py`, `exceptions.py`), `server.py` — gRPC-сервер (`DeliveryServicer`).
+- Монолит (`app/modules/delivery/`) больше не работает с таблицей `deliveries`:
+  `router.py` зависит от интерфейса `DeliveryGateway` (`gateway.py`), реализация — `DeliveryGrpcClient`
+  (`grpc_client.py`, инфраструктурный слой), подставляется в `container.py`.
+- Права на доставку (RBAC и IDOR из ЛР № 3) сохранены: монолит проверяет JWT и роль,
+  а в gRPC-запросе передаёт `Actor` (id и роль пользователя); владельца доставки проверяет микросервис.
+- **Обработка ошибок** (8 баллов): таймаут каждого вызова 5 с. `UNAVAILABLE` и `DEADLINE_EXCEEDED` →
+  `ServiceUnavailableError` → HTTP 503. Доменные ошибки идут по сети как статусы gRPC и превращаются
+  обратно: `NOT_FOUND` → 404, `PERMISSION_DENIED` → 403, `FAILED_PRECONDITION` → 400.
+- **Server Streaming** (9 баллов): `TrackDelivery` отдаёт статусы `in_progress → on_the_way → delivered`
+  с паузой 2 с.
+- **Bidirectional Streaming** (10 баллов): `ChatWithCourier` — на каждое сообщение клиента курьер сразу отвечает
+  в том же потоке.
+
+### Архитектура
+
+```mermaid
+flowchart LR
+    C[Клиент] -- HTTP + JWT --> R
+    subgraph M[Монолит FastAPI :8000]
+        R[delivery/router.py] --> G[DeliveryGateway]
+        G -.реализация.-> GC[DeliveryGrpcClient]
+    end
+    GC -- gRPC / HTTP2 + protobuf --> S
+    subgraph D[delivery_service :50051]
+        S[server.py DeliveryServicer] --> DS[DeliveryService<br/>бизнес-правила]
+        DS --> DR[SqlAlchemyDeliveryRepository]
+    end
+    DR --> DB[(PostgreSQL)]
+    M -- orders, users, menu --> DB
+```
+
+Strangler Fig: монолит продолжает обслуживать те же HTTP-эндпоинты `/delivery/*`, клиенты ничего не заметили,
+но запросы «душатся» в новый сервис. Следующий шаг — отдельная БД для доставки.
+
+### Запуск и проверка
+
+```bash
+python -m delivery_service.server       # терминал 1: Delivery gRPC server running on port 50051
+uvicorn app.main:app                     # терминал 2
+python -m scripts.demo_delivery          # assign → get → TrackDelivery → чат → complete
+```
+
+Перегенерация кода из контракта:
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. --grpc_python_out=. proto/delivery.proto
+```
+
+Вывод демонстрации и лог микросервиса:
+
+```
+1) HTTP POST /delivery/assign -> монолит -> gRPC AssignCourier: доставка 1
+2) HTTP GET /delivery/1: {'id': 1, 'order_id': 91, 'courier_id': 7, 'status': 'in_progress'}
+3) Server Streaming TrackDelivery: in_progress, on_the_way, delivered
+4) Bidirectional Streaming ChatWithCourier:
+   клиент: Где мой заказ?    курьер: Принял: «Где мой заказ?». Буду через 10 минут
+5) HTTP PATCH /delivery/1/complete: 200
+
+delivery_service AssignCourier order=91 courier=7
+delivery_service GetDelivery delivery=1 actor=7
+delivery_service TrackDelivery delivery=1
+delivery_service Chat delivery=1 client: Где мой заказ?
+delivery_service CompleteDelivery delivery=1 actor=7
+```
+
+Микросервис остановлен → `GET /delivery/my` отвечает `503 {"detail": "Сервис доставки недоступен"}`.
+
+Тесты: `tests/test_delivery_grpc.py` (назначение и завершение по сети, ошибки 404/403 через gRPC,
+недоступный сервис, стриминг статусов, чат, HTTP 503). HTTP-тесты безопасности доставки из ЛР № 3
+теперь идут через настоящий gRPC-сервер, который фикстура `delivery_grpc_server` поднимает в тестовом процессе.
+
+Ответы на контрольные вопросы: [docs/pr6-answers.md](docs/pr6-answers.md).
