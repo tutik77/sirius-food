@@ -4,6 +4,8 @@
 Импорты fastapi и sqlalchemy здесь запрещены: сервис зависит только
 от доменных сущностей и абстрактного OrderRepository.
 """
+from datetime import date, datetime, time, timedelta
+
 from app.domain.entities import Order, OrderStatus, User
 from app.modules.orders.exceptions import (
     AccessDeniedError,
@@ -15,6 +17,7 @@ from app.modules.orders.exceptions import (
     UserNotFoundError,
 )
 from app.modules.orders.repository import OrderRepository
+from app.tasks.orders import generate_order_pdf, send_order_email, send_order_sms
 
 
 class OrderService:
@@ -53,7 +56,16 @@ class OrderService:
             status=OrderStatus.PROCESSING,
             total_cost=total_cost,
         )
-        return self.repository.save_order(order, payer=user)
+        saved = self.repository.save_order(order, payer=user)
+        self._schedule_order_notifications(saved, user)
+        return saved
+
+    @staticmethod
+    def _schedule_order_notifications(order: Order, user: User) -> None:
+        generate_order_pdf.delay(order.id)
+        send_order_email.delay(order.id, user.email)
+        if user.phone:
+            send_order_sms.delay(order.id, user.phone)
 
     def cancel_order(self, order_id: int, current_user: User) -> Order:
         """
@@ -77,6 +89,10 @@ class OrderService:
     def list_user_orders(self, current_user: User) -> list[Order]:
         """Заказы текущего пользователя — только его собственные."""
         return self.repository.list_by_user(current_user.id)
+
+    def count_orders_for_day(self, day: date) -> int:
+        start = datetime.combine(day, time.min)
+        return self.repository.count_created_between(start, start + timedelta(days=1))
 
     def get_kitchen_orders(self) -> list[Order]:
         """Очередь кухни: заказы, которые нужно приготовить."""

@@ -1,7 +1,7 @@
 """
 Определение ORM-моделей предметной области «Сириус.Еда».
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -50,6 +50,7 @@ class Order(Base):
     status = Column(String, default="processing")
     # Сколько списано с баланса при оформлении — столько и вернётся при отмене.
     total_cost = Column(Float, nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
 
     user = relationship("User")
     item = relationship("MenuItem")

@@ -6,6 +6,7 @@ OrderRepository — абстрактный интерфейс, от которо
 """
 from abc import ABC, abstractmethod
 from dataclasses import replace
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +49,9 @@ class OrderRepository(ABC):
     @abstractmethod
     def save_cancellation(self, order: Order, payer: User) -> None:
         """Сохраняет отменённый заказ и возврат денег покупателю одной транзакцией."""
+
+    @abstractmethod
+    def count_created_between(self, start: datetime, end: datetime) -> int: ...
 
 
 class SqlAlchemyOrderRepository(OrderRepository):
@@ -97,6 +101,13 @@ class SqlAlchemyOrderRepository(OrderRepository):
         self.db.get(models.User, payer.id).balance = payer.balance
         self.db.commit()
 
+    def count_created_between(self, start: datetime, end: datetime) -> int:
+        return (
+            self.db.query(models.Order)
+            .filter(models.Order.created_at >= start, models.Order.created_at < end)
+            .count()
+        )
+
 
 class InMemoryOrderRepository(OrderRepository):
     """Реализация репозитория заказов в памяти процесса."""
@@ -120,7 +131,7 @@ class InMemoryOrderRepository(OrderRepository):
         return [copy(o) for o in self.storage.orders.values() if o.status == status]
 
     def save_order(self, order: Order, payer: User) -> Order:
-        saved = replace(order, id=self.storage.next_id("orders"))
+        saved = replace(order, id=self.storage.next_id("orders"), created_at=datetime.utcnow())
         self.storage.users[payer.id] = copy(payer)
         self.storage.orders[saved.id] = saved
         return copy(saved)
@@ -128,3 +139,6 @@ class InMemoryOrderRepository(OrderRepository):
     def save_cancellation(self, order: Order, payer: User) -> None:
         self.storage.orders[order.id] = copy(order)
         self.storage.users[payer.id] = copy(payer)
+
+    def count_created_between(self, start: datetime, end: datetime) -> int:
+        return sum(1 for o in self.storage.orders.values() if start <= o.created_at < end)

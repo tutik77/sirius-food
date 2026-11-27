@@ -106,3 +106,13 @@ def make_user(repos):
         )
 
     return factory
+
+
+@pytest.fixture(autouse=True)
+def scheduled_tasks(monkeypatch):
+    from app.tasks import orders
+
+    calls = []
+    for task in (orders.generate_order_pdf, orders.send_order_email, orders.send_order_sms):
+        monkeypatch.setattr(task, "delay", lambda *args, name=task.name: calls.append((name, args)))
+    return calls

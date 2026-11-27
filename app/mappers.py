@@ -37,6 +37,7 @@ def to_order(row: models.Order) -> Order:
         quantity=row.quantity,
         status=row.status,
         total_cost=row.total_cost,
+        created_at=row.created_at,
     )
 
 

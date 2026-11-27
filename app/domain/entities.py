@@ -62,6 +62,7 @@ class Order:
     quantity: int
     status: str = OrderStatus.PROCESSING
     total_cost: float | None = None
+    created_at: datetime | None = None
 
     def belongs_to(self, user: User) -> bool:
         return self.user_id == user.id
