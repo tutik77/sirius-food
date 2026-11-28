@@ -18,6 +18,6 @@ def outgoing_headers() -> dict[str, str]:
 @contextmanager
 def continue_trace(headers: dict | None, span_name: str, kind: SpanKind = SpanKind.CONSUMER) -> Iterator[None]:
     headers = {key: value.decode() if isinstance(value, bytes) else str(value) for key, value in (headers or {}).items()}
-    bind_correlation_id(headers.get(HEADER))
     with tracer.start_as_current_span(span_name, context=propagate.extract(headers), kind=kind):
+        bind_correlation_id(headers.get(HEADER))
         yield

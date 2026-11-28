@@ -1,4 +1,17 @@
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -119,6 +132,7 @@ class PromoCode(Base):
 
 class PromoCodeUsage(Base):
     __tablename__ = "promo_code_usages"
+    __table_args__ = (UniqueConstraint("promo_code_id", "user_id", name="uq_promo_code_usages_promo_user"),)
 
     id = Column(Integer, primary_key=True)
     promo_code_id = Column(Integer, ForeignKey("promo_codes.id"), nullable=False)
