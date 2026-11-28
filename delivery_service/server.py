@@ -7,6 +7,7 @@ from contextlib import AbstractContextManager, contextmanager
 import grpc
 
 from app.core.logging import setup_logging
+from app.core.sentry import setup_sentry
 from app.database import SessionLocal
 from app.domain.entities import Delivery, User
 from app.domain.errors import BusinessRuleError, DomainError, ForbiddenError, NotFoundError
@@ -119,6 +120,7 @@ def create_server(address: str, scope: ServiceScope = postgres_scope) -> tuple[g
 
 def serve() -> None:
     setup_logging("delivery_service")
+    setup_sentry("delivery_service")
     server, _ = create_server(f"[::]:{PORT}")
     server.start()
     logger.info("Delivery gRPC server running on port %s", PORT)

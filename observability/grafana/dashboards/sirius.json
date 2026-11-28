@@ -124,7 +124,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rabbitmq_queue_messages{queue=~\"kitchen_queue|delivery_queue|orders_queue\"}",
+          "expr": "rabbitmq_queue_messages{queue=~\"kitchen_queue|delivery_queue|orders_queue|loyalty_queue|promo_queue\"}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

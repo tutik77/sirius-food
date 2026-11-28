@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -175,3 +176,21 @@ def test_langgraph_agent_calls_tool_bound_to_user(storage, student, context):
     tool_result = next(m for m in model.seen[-1] if isinstance(m, ToolMessage))
     assert "Заказ #1: Сырники со сметаной × 1" in tool_result.content
     assert "Сириус.Еда" in model.seen[0][0].content
+
+
+def test_unavailable_vector_store_gives_fallback(storage, student, context):
+    def unavailable_store():
+        raise ConnectionError("Qdrant недоступен")
+
+    model = ScriptedModel(
+        responses=[
+            AIMessage(content="", tool_calls=[{"name": "search_knowledge", "args": {"query": "доставка"}, "id": "call-1"}]),
+            AIMessage(content="Доставка бесплатная."),
+        ],
+        seen=[],
+    )
+    agent = LangGraphAssistantAgent(lambda: model, replace(context, knowledge=KnowledgeBase(unavailable_store)))
+
+    message = AssistantService(agent, InMemoryAssistantMessageRepository(storage)).ask(student, "Сколько стоит доставка?")
+
+    assert (message.answer, message.is_fallback) == (FALLBACK_ANSWER, True)

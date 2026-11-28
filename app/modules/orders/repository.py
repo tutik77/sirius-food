@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import replace
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
@@ -10,6 +11,7 @@ from app.domain.events import Event
 from app.mappers import to_menu_item, to_order, to_user
 from app.memory_storage import InMemoryStorage, copy
 from app.messaging.outbox import to_outbox_row
+from app.modules.promo.exceptions import PromoCodeAlreadyUsedError
 
 
 class OrderRepository(ABC):
@@ -87,17 +89,25 @@ class SqlAlchemyOrderRepository(OrderRepository):
         self.db.add(order_row)
         self.db.flush()
         if promo_usage is not None:
-            self.db.add(
-                models.PromoCodeUsage(
-                    promo_code_id=promo_usage.promo_code_id,
-                    user_id=promo_usage.user_id,
-                    order_id=order_row.id,
-                    discount=promo_usage.discount,
-                )
-            )
+            self._save_promo_usage(promo_usage, order_row.id)
         self.db.commit()
         self.db.refresh(order_row)
         return to_order(order_row)
+
+    def _save_promo_usage(self, usage: PromoUsage, order_id: int) -> None:
+        self.db.add(
+            models.PromoCodeUsage(
+                promo_code_id=usage.promo_code_id,
+                user_id=usage.user_id,
+                order_id=order_id,
+                discount=usage.discount,
+            )
+        )
+        try:
+            self.db.flush()
+        except IntegrityError as e:
+            self.db.rollback()
+            raise PromoCodeAlreadyUsedError() from e
 
     def save_cancellation(self, order: Order, payer: User, event: Event) -> None:
         self.db.get(models.Order, order.id).status = order.status

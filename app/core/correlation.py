@@ -4,6 +4,7 @@ from contextvars import ContextVar
 import sentry_sdk
 import structlog
 from fastapi import Request
+from opentelemetry import trace
 
 HEADER = "X-Correlation-ID"
 
@@ -16,6 +17,7 @@ def bind_correlation_id(value: str | None) -> str:
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(correlation_id=value)
     sentry_sdk.set_tag("correlation_id", value)
+    trace.get_current_span().set_attribute("correlation_id", value)
     return value
 
 
