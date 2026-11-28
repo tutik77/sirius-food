@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 
-import sentry_sdk
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +12,7 @@ from app.container import warm_up_menu_cache
 from app.core.config import settings
 from app.core.correlation import HEADER, correlation_id_middleware
 from app.core.logging import setup_logging
+from app.core.sentry import setup_sentry
 from app.core.tracing import setup_tracing
 from app.modules.assistant.router import router as assistant_router
 from app.modules.auth.router import router as auth_router
@@ -25,8 +25,7 @@ from app.modules.users.router import router as users_router
 
 setup_logging("api")
 setup_tracing("api")
-if settings.SENTRY_DSN:
-    sentry_sdk.init(dsn=settings.SENTRY_DSN, environment="dev" if settings.DEBUG else "prod")
+setup_sentry("api")
 
 logger = structlog.get_logger(__name__)
 

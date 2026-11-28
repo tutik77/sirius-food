@@ -687,20 +687,23 @@ FCP — first contentful paint, «блюда в DOM» — момент появ�
   (`app/messaging/context.py` → `continue_trace`) восстанавливают его перед обработкой. События, которые consumer
   сам пишет в outbox (`delivery.failed`, `order.cancelled`), наследуют тот же ID — вся Saga связана.
 - **JSON-логи в stdout** (`app/core/logging.py`, structlog): в каждой записи `timestamp`, `level`, `service`,
-  `correlation_id`, событие и поля (`order_created`, `order_paid`, `kitchen_order_accepted`, `delivery_failed`…).
+  `correlation_id`, `trace_id`, событие и поля (`order_created`, `order_paid`, `kitchen_order_accepted`, `delivery_failed`…).
 - **Prometheus**: `/metrics` с RED-метриками (`prometheus-fastapi-instrumentator`), метрики очередей RabbitMQ
   (плагин `rabbitmq_prometheus`) и Redis (`redis_exporter`). Конфиг — `observability/prometheus/prometheus.yml`.
 - **Grafana** (http://localhost:3001, admin/admin; порт 3000 занят витриной ЛР № 8): datasource и дашборд
   «Сириус.Еда» подключаются автоматически из `observability/grafana/` — RPS, latency p95, ошибки 5xx,
   длина очередей RabbitMQ, cache hit rate Redis.
-- **Sentry** (9 баллов): `sentry_sdk.init` при заданном `SENTRY_DSN`, тег `correlation_id` ставит middleware,
-  при `DEBUG=True` есть `GET /debug/error` для проверочной ошибки 500.
+- **Sentry** (9 баллов): `app/core/sentry.py` — `setup_sentry` при заданном `SENTRY_DSN` в API и во всех
+  worker'ах (consumer'ы, relay, delivery); тег `correlation_id` ставится там же, где ID попадает в логи
+  (`bind_correlation_id`). При `DEBUG=True` есть `GET /debug/error` для проверочной ошибки 500.
   Проверено: проект `sirius-food` в организации `sirius-food-tutik77` (sentry.io, EU);
   `curl http://127.0.0.1:8000/debug/error -H "X-Correlation-ID: demo-sentry-42"` → в Sentry issue `RuntimeError`
   со стектрейсом, находится поиском `correlation_id:demo-sentry-42`.
 - **OpenTelemetry + Jaeger** (10 баллов): `app/core/tracing.py`, FastAPI инструментирован, контекст трейса
   (`traceparent`) едет через outbox и RabbitMQ вместе с correlation ID, relay и consumer'ы продолжают тот же trace.
-- Весь стек запускается в Docker (`Dockerfile`, профиль `app` в `docker-compose.yml`): `sirius_app`, `sirius_kitchen`,
+  У span'ов есть атрибут `correlation_id` — в Jaeger трейс ищется по тегу `correlation_id=demo-42`, а по `trace_id`
+  из лога — сразу открывается.
+- Весь стек запускается в Docker (`Dockerfile`, `docker-compose.yml`): `sirius_app`, `sirius_kitchen`,
   `sirius_delivery`, `sirius_delivery_worker`, `sirius_orders_saga`, `sirius_outbox_relay`, `sirius_celery_worker`.
 
 ### Запуск
@@ -766,7 +769,7 @@ sirius_delivery_worker: delivery_failed {order_id: 98, reason: Нет свобо
 оплата пишет заказ `paid` и событие в `outbox_events` одной транзакцией; блюдо читается из PostgreSQL, 404 для несуществующего.
 
 ```bash
-pytest tests/integration -v        # 4 passed (~2 мин, нужен Docker)
+pytest tests/integration -v        # 6 passed: 4 теста ЛР № 10 + 2 гонки промокодов трека A (нужен Docker)
 ```
 
 ### Нагрузочный тест (Locust)
@@ -886,7 +889,8 @@ docker run --rm -v "$PWD:/src" -w /src sirius_food-app bash scripts/mutmut_run.s
 2. **Промокод при создании заказа** — `POST /orders/create {"item_id": 1, "quantity": 2, "promo_code": "STUDENT10"}`.
    `PromoService.quote` проверяет: промокод существует и активен, срок действия, лимит использований, минимальная
    сумма, клиент ещё не применял этот код. Резерв — атомарный `UPDATE … WHERE current_uses < max_uses`; резерв,
-   заказ со скидкой, запись использования и списание денег — одна транзакция.
+   заказ со скидкой, запись использования и списание денег — одна транзакция. «Один раз на клиента» при
+   параллельных заказах держит уникальный индекс `(promo_code_id, user_id)`.
 3. **Начисление баллов после оплаты** — `loyalty_consumer` на `order.paid`: Bronze 3 %, Silver 5 % (от 1000
    начисленных), Gold 7 % (от 5000), ключ `earn_order_{id}`, уровень пересчитывается после начисления.
 4. **Оплата баллами** — `POST /orders/{id}/pay {"points": 100}`: не больше 50 % суммы, баланс баллов достаточен,
@@ -910,19 +914,26 @@ pytest tests/integration/test_promo_race.py -v
 ```
 
 Результат: ровно 1 заказ с промокодом, 29 — `PromoCodeExhaustedError`, `current_uses = 1`, одна запись использования.
+Второй тест: один клиент 10 раз параллельно заказывает с многоразовым кодом → 1 применение, 9 — `PromoCodeAlreadyUsedError`.
 
-Locust (`load/promo_race.py`, подготовка — `python -m scripts.prepare_promo_race 1000`): 1000 студентов, каждый один
-раз пытается применить промокод `RACE1` с `max_uses = 1`.
+Locust (`load/promo_race.py`, подготовка — `python -m scripts.prepare_promo_race 1000`): 1000 студентов одновременно
+применяют промокод `RACE1` с `max_uses = 1`; каждый повторяет запрос раз в секунду, пока не получит ответ 200 или 400.
+
+```bash
+locust -f load/promo_race.py --headless -u 1000 -r 250 --run-time 300s --host http://127.0.0.1:8000 --csv docs/practice/promo_race
+```
 
 | Ответ | Запросов | Медиана | p95 |
 |---|---|---|---|
-| Промокод применён | 1 | 333 мс | 330 мс |
-| 400 «Промокод исчерпан» | 999 | 480 мс | 16 000 мс |
-| Ошибки 5xx | 0 | | |
+| Промокод применён | 1 | 1455 мс | 1500 мс |
+| 400 «Промокод исчерпан» | 999 | 210 мс | 7900 мс |
+| 503 (сервер перегружен, клиент повторил) | 31 374 | 61 мс | 8700 мс |
+| Обрыв соединения | 4 | | |
 
-После прогона `current_uses = 1`, заказ с промокодом один. CSV — `docs/practice/`.
-При спавне 250 пользователей в секунду один процесс uvicorn не успевает: по `--limit-concurrency 40` лишние запросы
-сразу получают 503, а промокод всё равно применяется ровно один раз — корректность держит БД, а не скорость сервера.
+После прогона `current_uses = 1`, одна запись в `promo_code_usages`. CSV — `docs/practice/`.
+Один процесс uvicorn не держит 1000 одновременных клиентов: по `--limit-concurrency 40` лишние запросы сразу
+получают 503, клиент повторяет. Все 1000 получили окончательный ответ, промокод применён ровно один раз —
+корректность держит БД, а не скорость сервера.
 
 ### Тесты
 
@@ -1004,7 +1015,7 @@ python -m scripts.demo_assistant                 # 4 вопроса от име�
 
 ### Тесты
 
-`tests/unit/test_assistant.py`: ответ сохраняется со временем, недоступная модель → fallback, оценивать можно только
+`tests/unit/test_assistant.py`: ответ сохраняется со временем, недоступная модель или Qdrant → fallback, оценивать можно только
 свои ответы, FAQ разбит на темы, `search_knowledge` ищет по векторному хранилищу, `my_orders` показывает только
 заказы текущего клиента, `my_loyalty` — баллы и промокоды, агент LangGraph вызывает инструмент и отвечает по его
 результату (модель подменена скриптовой, без сети).

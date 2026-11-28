@@ -4,6 +4,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.core.logging import setup_logging
+from app.core.sentry import setup_sentry
 from app.core.tracing import setup_tracing
 from app.database import SessionLocal
 from app.domain.events import ORDER_CANCELLED
@@ -41,4 +42,5 @@ def on_event(routing_key: str, payload: dict) -> None:
 if __name__ == "__main__":
     setup_logging("promo")
     setup_tracing("promo")
+    setup_sentry("promo")
     asyncio.run(consume(QUEUE, [ORDER_CANCELLED], on_event))

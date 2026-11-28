@@ -2,6 +2,14 @@ import logging
 import sys
 
 import structlog
+from opentelemetry import trace
+
+
+def add_trace_id(_, __, event: dict) -> dict:
+    span = trace.get_current_span().get_span_context()
+    if span.is_valid:
+        event["trace_id"] = format(span.trace_id, "032x")
+    return event
 
 
 def setup_logging(service: str) -> None:
@@ -15,6 +23,7 @@ def setup_logging(service: str) -> None:
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
         add_service,
+        add_trace_id,
     ]
     structlog.configure(
         processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],

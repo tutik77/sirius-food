@@ -7,7 +7,7 @@ import httpx
 
 BASE_URL = "http://127.0.0.1:8000"
 STUDENT = ("load-student@sirius.ru", "StudentPass123")
-CONTAINERS = ["sirius_app", "sirius_outbox_relay", "sirius_kitchen", "sirius_delivery_worker"]
+CONTAINERS = ["sirius_app", "sirius_outbox_relay", "sirius_kitchen", "sirius_delivery_worker", "sirius_orders_saga", "sirius_loyalty", "sirius_promo"]
 
 
 def place_and_pay(correlation_id: str) -> int:

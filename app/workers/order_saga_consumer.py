@@ -4,6 +4,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.core.logging import setup_logging
+from app.core.sentry import setup_sentry
 from app.core.tracing import setup_tracing
 from app.database import SessionLocal
 from app.domain.events import DELIVERY_FAILED
@@ -40,4 +41,5 @@ def on_event(routing_key: str, payload: dict) -> None:
 if __name__ == "__main__":
     setup_logging("orders_saga")
     setup_tracing("orders_saga")
+    setup_sentry("orders_saga")
     asyncio.run(consume(QUEUE, [DELIVERY_FAILED], on_event))

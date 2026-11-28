@@ -5,6 +5,7 @@ from opentelemetry.trace import SpanKind
 from sqlalchemy.orm import Session
 
 from app.core.logging import setup_logging
+from app.core.sentry import setup_sentry
 from app.core.tracing import setup_tracing
 from app.database import SessionLocal
 from app.messaging.context import continue_trace, outgoing_headers
@@ -46,4 +47,5 @@ async def run() -> None:
 if __name__ == "__main__":
     setup_logging("outbox_relay")
     setup_tracing("outbox_relay")
+    setup_sentry("outbox_relay")
     asyncio.run(run())
